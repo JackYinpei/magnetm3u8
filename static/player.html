@@ -125,21 +125,32 @@
                     }
                 } else if (msg.type === "ice_candidate") {
                     console.log("收到 ICE candidate");
-                    let candidateObj = null;
+                    let candidateStr = "";
                     
-                    // 处理不同格式的候选者
+                    // 获取候选者字符串
                     if (msg.payload && msg.payload.candidate) {
-                        candidateObj = JSON.parse(msg.payload.candidate);
+                        candidateStr = msg.payload.candidate;
                     } else if (msg.candidate) {
-                        candidateObj = JSON.parse(msg.candidate);
+                        candidateStr = msg.candidate;
                     }
                     
-                    if (candidateObj) {
-                        pc.addIceCandidate(candidateObj)
-                            .then(() => console.log("成功添加 ICE candidate"))
-                            .catch(err => console.log("添加 ICE candidate 失败: " + err));
+                    if (candidateStr) {
+                        try {
+                            // 创建RTCIceCandidate对象
+                            const candidate = new RTCIceCandidate({
+                                candidate: candidateStr,
+                                sdpMid: '0',
+                                sdpMLineIndex: 0
+                            });
+                            
+                            pc.addIceCandidate(candidate)
+                                .then(() => console.log("成功添加 ICE candidate"))
+                                .catch(err => console.log("添加 ICE candidate 失败: " + err));
+                        } catch (e) {
+                            console.log("处理ICE candidate时出错:", e, "candidate:", candidateStr);
+                        }
                     } else {
-                        console.log("无法解析ICE candidate:", msg);
+                        console.log("无法获取ICE candidate字符串:", msg);
                     }
                 }
             };
