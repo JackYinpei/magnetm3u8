@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 )
 
@@ -44,10 +44,6 @@ func (m *Manager) Transcode(taskID uint, inputPath string) (string, error) {
 		return "", fmt.Errorf("创建任务输出目录失败: %w", err)
 	}
 
-	// 生成输出文件路径
-	outputName := "index.m3u8"
-	outputPath := filepath.Join(taskDir, outputName)
-
 	// 标记任务为活跃
 	m.mu.Lock()
 	m.activeJobs[taskID] = true
@@ -60,30 +56,60 @@ func (m *Manager) Transcode(taskID uint, inputPath string) (string, error) {
 		m.mu.Unlock()
 	}()
 
-	// 使用FFmpeg进行转码
-	cmd := exec.Command(
-		"ffmpeg",
-		"-i", inputPath,
-		"-profile:v", "baseline", // 基本配置文件兼容性更好
-		"-level", "3.0",
-		"-start_number", "0",
-		"-hls_time", "10", // 每个片段10秒
-		"-hls_list_size", "0", // 所有片段保持在播放列表中
-		"-f", "hls",
-		outputPath,
-	)
+	// 检测文件类型并选择合适的转码配置
+	config := selectHLSConfig(inputPath)
 
-	// 获取FFmpeg输出
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	log.Printf("开始转码: %s -> %s", inputPath, outputPath)
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("FFmpeg转码失败: %w", err)
+	// 使用HLSConverter进行转码
+	log.Printf("开始转码任务 %d: %s -> %s", taskID, inputPath, taskDir)
+	outputPath, err := ConvertToHLS(inputPath, taskDir, config)
+	if err != nil {
+		return "", fmt.Errorf("转码失败: %w", err)
 	}
 
 	log.Printf("转码完成: %s", outputPath)
 	return outputPath, nil
+}
+
+// selectHLSConfig 根据输入文件选择合适的HLS配置
+func selectHLSConfig(inputPath string) HLSConfig {
+	// 默认配置
+	config := DefaultHLSConfig()
+
+	// 获取文件扩展名
+	ext := strings.ToLower(filepath.Ext(inputPath))
+
+	// 根据文件类型调整配置
+	switch ext {
+	case ".mp4", ".mov", ".m4v":
+		// 对于常见的MP4类文件，使用默认配置即可
+	case ".mkv", ".avi", ".wmv":
+		// 对于更复杂的容器，可能需要更高质量的编码
+		config.VideoPreset = "slow"
+		config.VideoCRF = 20
+	case ".webm", ".vp9":
+		// 对于WebM格式，使用更高效的编码
+		config.VideoPreset = "faster"
+		config.VideoCRF = 22
+	case ".ts", ".m2ts":
+		// 对于已经是HLS兼容的格式，可以使用轻量级转码
+		config.VideoPreset = "ultrafast"
+		config.VideoCRF = 21
+	default:
+		// 对于其他格式，使用保守的设置
+		config.VideoPreset = "medium"
+		config.VideoCRF = 23
+	}
+
+	// 获取文件大小以决定是否调整质量
+	fileInfo, err := os.Stat(inputPath)
+	if err == nil {
+		// 对于大于1GB的文件，可以考虑使用高质量编码
+		if fileInfo.Size() > 1024*1024*1024 {
+			config.VideoCRF = 22 // 稍微提高质量
+		}
+	}
+
+	return config
 }
 
 // IsTranscoding 检查任务是否正在转码中

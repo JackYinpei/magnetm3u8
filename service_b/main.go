@@ -278,6 +278,25 @@ func (cm *ConnectionManager) processMagnetTask(taskID uint, magnetURL string) {
 		return
 	}
 
+	// 等待文件系统完全同步，确保文件可以访问
+	var fileReady bool
+	for i := 0; i < 30; i++ {
+		file, err := os.Open(filePath)
+		if err == nil {
+			file.Close()
+			fileReady = true
+			log.Printf("文件已准备就绪: %s", filePath)
+			break
+		}
+		log.Printf("等待文件准备就绪(%d/30): %s, 错误: %v", i+1, filePath, err)
+		time.Sleep(time.Second)
+	}
+
+	if !fileReady {
+		cm.reportError(taskID, fmt.Sprintf("文件准备超时，无法访问: %s", filePath))
+		return
+	}
+
 	log.Printf("开始转码文件: %s", filePath)
 	m3u8Path, err := cm.tcManager.Transcode(taskID, filePath)
 	if err != nil {

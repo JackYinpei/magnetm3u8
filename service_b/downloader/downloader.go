@@ -205,8 +205,14 @@ func (m *Manager) GetDownloadedFilePath(taskID uint) string {
 	// 确保文件已完成下载
 	complete := t.BytesCompleted()
 	total := t.Length()
-	if complete < total {
+
+	// 允许1MB的误差范围，或者99.9%就认为完成了
+	downloadCompleted := complete >= total || total-complete <= 1024*1024 || float64(complete)/float64(total) >= 0.999
+
+	if !downloadCompleted {
 		log.Printf("任务 %d 的下载尚未完成: %d/%d 字节", taskID, complete, total)
+	} else {
+		log.Printf("任务 %d 的下载已完成: %d/%d 字节", taskID, complete, total)
 	}
 
 	// 如果是单文件Torrent
