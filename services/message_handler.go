@@ -148,12 +148,11 @@ func (h *MessageHandler) handleDownloadComplete(payload interface{}) {
 	}
 
 	// 提取任务ID
-	taskIDFloat, ok := data["task_id"].(float64)
+	taskID, ok := data["task_id"].(uint)
 	if !ok {
 		log.Printf("下载完成消息中缺少task_id字段")
 		return
 	}
-	taskID := uint(taskIDFloat)
 
 	// 更新任务状态为transcoding（表示正在转码）
 	err := h.torrentService.UpdateTaskStatus(taskID, "transcoding")
@@ -178,12 +177,11 @@ func (h *MessageHandler) handleTranscodeComplete(payload interface{}) {
 	}
 
 	// 提取信息
-	taskIDFloat, ok := data["task_id"].(float64)
+	taskID, ok := data["task_id"].(uint)
 	if !ok {
 		log.Printf("转码完成消息中缺少task_id字段")
 		return
 	}
-	taskID := uint(taskIDFloat)
 
 	m3u8Path, ok := data["m3u8_path"].(string)
 	if !ok {

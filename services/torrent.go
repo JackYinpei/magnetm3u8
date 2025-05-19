@@ -91,11 +91,14 @@ func (s *TorrentService) GetAllTasks() ([]models.TorrentTask, error) {
 
 // UpdateTaskStatus 更新任务状态
 func (s *TorrentService) UpdateTaskStatus(taskID uint, status string) error {
+	log.Printf("更新任务状态: %d, %s", taskID, status)
 	result := db.DB.Model(&models.TorrentTask{}).Where("id = ?", taskID).Update("status", status)
 	if result.Error != nil {
+		log.Printf("更新任务状态失败: %v", result.Error)
 		return result.Error
 	}
 	if result.RowsAffected == 0 {
+		log.Printf("更新任务状态失败: 任务不存在")
 		return ErrTaskNotFound
 	}
 	return nil

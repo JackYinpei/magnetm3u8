@@ -68,6 +68,25 @@ func (m *Manager) GetTorrentInfo(magnetURL string) (*TorrentInfo, error) {
 	if err != nil {
 		return nil, fmt.Errorf("添加磁力链接失败: %w", err)
 	}
+	// 为种子添加更多的 trackers 以提高发现速度
+	publicTrackers := []string{
+		"udp://tracker.opentrackr.org:1337/announce",
+		"udp://tracker.openbittorrent.com:6969/announce",
+		"udp://open.stealth.si:80/announce",
+		"udp://exodus.desync.com:6969/announce",
+		"udp://explodie.org:6969/announce",
+		"http://tracker.opentrackr.org:1337/announce",
+		"http://tracker.openbittorrent.com:80/announce",
+		"udp://tracker.torrent.eu.org:451/announce",
+		"udp://tracker.moeking.me:6969/announce",
+		"udp://bt.oiyo.tk:6969/announce",
+		"https://tracker.nanoha.org:443/announce",
+		"https://tracker.lilithraws.org:443/announce",
+	}
+
+	for _, tracker := range publicTrackers {
+		t.AddTrackers([][]string{{tracker}})
+	}
 
 	// 等待元数据
 	log.Println("等待获取Torrent元数据...")
@@ -95,7 +114,7 @@ func (m *Manager) GetTorrentInfo(magnetURL string) (*TorrentInfo, error) {
 		}
 
 		return torrentInfo, nil
-	case <-time.After(30 * time.Second):
+	case <-time.After(2 * time.Minute):
 		return nil, errors.New("获取Torrent元数据超时")
 	}
 }

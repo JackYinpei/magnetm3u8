@@ -220,7 +220,7 @@ func (cm *ConnectionManager) handleICECandidate(payload map[string]interface{}) 
 
 // 处理磁力链接任务
 func (cm *ConnectionManager) processMagnetTask(taskID uint, magnetURL string) {
-	// 1. 下载Torrent元数据
+	// 1. 下载Torrent元数据，等待两分钟，如失败则报错
 	torrentInfo, err := cm.dlManager.GetTorrentInfo(magnetURL)
 	if err != nil {
 		log.Printf("获取Torrent信息失败: %v", err)
@@ -311,11 +311,21 @@ func (cm *ConnectionManager) processMagnetTask(taskID uint, magnetURL string) {
 
 // 发送Torrent信息给服务A
 func (cm *ConnectionManager) sendTorrentInfo(taskID uint, info *downloader.TorrentInfo) {
+	// 转换文件信息结构，使字段名与服务A期望的字段名匹配
+	var formattedFiles []map[string]interface{}
+	for _, file := range info.Files {
+		formattedFiles = append(formattedFiles, map[string]interface{}{
+			"file_name": filepath.Base(file.Path), // 从路径中提取文件名
+			"file_size": file.Size,                // 大小保持不变
+			"file_path": file.Path,                // 路径保持不变
+		})
+	}
+
 	payload := map[string]interface{}{
 		"task_id":   taskID,
 		"name":      info.Name,
 		"size":      info.Size,
-		"files":     info.Files,
+		"files":     formattedFiles, // 使用转换后的文件列表
 		"info_hash": info.InfoHash,
 	}
 

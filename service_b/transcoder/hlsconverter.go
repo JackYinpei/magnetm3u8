@@ -69,9 +69,18 @@ func ConvertToHLS(inputPath string, outputDir string, config HLSConfig) (string,
 		return "", fmt.Errorf("输入文件不存在: %s", err)
 	}
 
+	// TODO 测试阶段，如果检查输出文件夹已经存在就退出转码
+	if _, err := getFileInfo(outputDir); err == nil {
+		return "", fmt.Errorf("输出目录已存在: %s", outputDir)
+	}
+
 	// 确保输出目录存在
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
-		return "", fmt.Errorf("创建输出目录失败: %s", err)
+		// 构建输出文件路径
+		outputName := "index.m3u8"
+		outputPath := filepath.Join(outputDir, outputName)
+		log.Println("输出目录已存在，返回输出文件路径: ", outputPath)
+		return outputPath, nil
 	}
 
 	// 获取输入文件的格式信息
@@ -101,6 +110,13 @@ func ConvertToHLS(inputPath string, outputDir string, config HLSConfig) (string,
 			"-preset", optimizedConfig.VideoPreset,
 			"-crf", fmt.Sprintf("%d", optimizedConfig.VideoCRF),
 		)
+
+		// 检测是否为10bit视频，如果是则使用high10 profile
+		if strings.Contains(fileInfo.VideoCodec, "10") || strings.Contains(fileInfo.VideoCodec, "hevc") {
+			args = append(args, "-profile:v", "high10")
+		} else {
+			args = append(args, "-profile:v", "high")
+		}
 
 		// 如果指定了尺寸，添加缩放参数
 		if optimizedConfig.Width > 0 || optimizedConfig.Height > 0 {
@@ -135,7 +151,6 @@ func ConvertToHLS(inputPath string, outputDir string, config HLSConfig) (string,
 
 	// 添加HLS特定参数
 	args = append(args,
-		"-profile:v", "high", // 使用high profile
 		"-level", "4.1", // 更高的兼容性级别
 		"-start_number", "0",
 		"-hls_time", fmt.Sprintf("%d", optimizedConfig.SegmentDuration),
@@ -204,6 +219,27 @@ func getFileInfo(inputPath string) (fileInfo, error) {
 		formatNameEnd := strings.Index(outputStr[formatNameStart:], "\"") + formatNameStart
 		if formatNameEnd > formatNameStart {
 			info.Format = outputStr[formatNameStart:formatNameEnd]
+		}
+	}
+
+	// 提取视频编码信息
+	if strings.Contains(outputStr, "\"codec_name\":") {
+		codecStart := strings.Index(outputStr, "\"codec_name\":") + 13
+		codecEnd := strings.Index(outputStr[codecStart:], "\"") + codecStart
+		if codecEnd > codecStart {
+			info.VideoCodec = outputStr[codecStart:codecEnd]
+		}
+	}
+
+	// 提取视频位深度信息
+	if strings.Contains(outputStr, "\"bits_per_raw_sample\":") {
+		bitsStart := strings.Index(outputStr, "\"bits_per_raw_sample\":") + 22
+		bitsEnd := strings.Index(outputStr[bitsStart:], ",") + bitsStart
+		if bitsEnd > bitsStart {
+			bitsStr := outputStr[bitsStart:bitsEnd]
+			if strings.Contains(bitsStr, "10") {
+				info.VideoCodec += "10"
+			}
 		}
 	}
 
