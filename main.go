@@ -9,13 +9,17 @@ import (
 	"magnetm3u8/services"
 
 	"github.com/gin-gonic/gin"
+	"github.com/joho/godotenv"
 )
 
 func main() {
+
+	godotenv.Load(".env")
+
 	// 获取端口配置，默认为8080
-	port := os.Getenv("PORT")
+	port := os.Getenv("SERVICE_A_PORT")
 	if port == "" {
-		port = "8080"
+		port = "7070"
 	}
 
 	// 初始化数据库

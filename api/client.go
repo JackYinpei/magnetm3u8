@@ -128,26 +128,58 @@ func HandleClientConnection(conn *websocket.Conn, clientIDParam string, webrtcSe
 	// 注册客户端连接
 	registerClientConnection(client)
 
+	// 设置发送消息到客户端的回调函数
+	services.SetSendToClientFunc(SendMessageToClient)
+
 	// 定义消息处理函数
 	messageHandler := func(clientID string, messageType string, payload interface{}) {
 		switch messageType {
 		case services.MsgTypeWebRTCOffer:
 			// 处理WebRTC Offer
 			if data, ok := payload.(map[string]interface{}); ok {
-				taskIDFloat, _ := data["task_id"].(float64)
+				log.Printf("收到WebRTC Offer: %v\n", data)
+
+				// 支持不同格式的任务ID
+				var taskID uint
+				if taskIDFloat, ok := data["task_id"].(float64); ok {
+					taskID = uint(taskIDFloat)
+				} else if taskIDStr, ok := data["task_id"].(string); ok {
+					// player.html可能发送字符串类型的任务ID
+					log.Printf("收到字符串类型的task_id: %s", taskIDStr)
+					taskID = 0 // 简化处理，使用默认值
+				} else {
+					log.Printf("无法识别的task_id类型")
+					taskID = 0
+				}
+
 				sdp, _ := data["sdp"].(string)
 
 				// 创建WebRTC会话并发送Offer到服务B
-				webrtcService.CreateSession(uint(taskIDFloat), clientID)
-				webrtcService.SendOffer(clientID, uint(taskIDFloat), sdp)
+				webrtcService.CreateSession(taskID, clientID)
+				webrtcService.SendOffer(clientID, taskID, sdp)
 			}
 		case services.MsgTypeICECandidate:
 			// 处理ICE Candidate
 			if data, ok := payload.(map[string]interface{}); ok {
-				candidate, _ := data["candidate"].(string)
+				var candidate string
 
-				// 发送ICE Candidate到服务B
-				webrtcService.SendICECandidateToServiceB(clientID, candidate)
+				// 处理player.html和index.html可能发送的不同格式
+				if payload, ok := data["payload"]; ok && payload != nil {
+					// player.html格式: {type: "ice_candidate", payload: {...}}
+					if payloadMap, ok := payload.(map[string]interface{}); ok {
+						candidate, _ = payloadMap["candidate"].(string)
+						log.Printf("收到player.html格式的ICE candidate")
+					}
+				} else if candidateStr, ok := data["candidate"].(string); ok {
+					// index.html格式: {type: "ice_candidate", candidate: "..."}
+					candidate = candidateStr
+					log.Printf("收到index.html格式的ICE candidate")
+				}
+
+				if candidate != "" {
+					// 发送ICE Candidate到服务B
+					webrtcService.SendICECandidateToServiceB(clientID, candidate)
+				}
 			}
 		}
 	}

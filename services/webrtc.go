@@ -66,9 +66,9 @@ func (s *WebRTCService) SendAnswer(clientID string, answerSDP string) error {
 	// 通过API包中的SendMessageToClient函数发送Answer到客户端
 	// 这里需要避免循环导入，所以我们先定义一个回调函数
 	if sendToClientFunc != nil {
+		log.Printf("向客户端 %s 发送 WebRTC Answer", clientID)
 		return sendToClientFunc(clientID, MsgTypeWebRTCAnswer, map[string]interface{}{
-			"client_id": clientID,
-			"sdp":       answerSDP,
+			"sdp": answerSDP,
 		})
 	}
 	return nil
@@ -92,10 +92,9 @@ func (s *WebRTCService) SendICECandidateToServiceB(clientID string, candidate st
 func (s *WebRTCService) SendICECandidateToClient(clientID string, candidate string) error {
 	// 通过API包中的SendMessageToClient函数发送ICE Candidate到客户端
 	if sendToClientFunc != nil {
+		log.Printf("向客户端 %s 发送 ICE Candidate", clientID)
 		return sendToClientFunc(clientID, MsgTypeICECandidate, map[string]interface{}{
-			"client_id": clientID,
 			"candidate": candidate,
-			"is_client": false,
 		})
 	}
 	return nil
