@@ -271,8 +271,10 @@
                 // 构造符合服务器期望格式的消息
                 const msg = { 
                     type: "webrtc_offer", 
-                    sdp: pc.localDescription.sdp, 
-                    task_id: clientId 
+                    payload: {
+                        sdp: pc.localDescription.sdp, 
+                        task_id: clientId 
+                    }
                 };
                 ws.send(JSON.stringify(msg));
                 console.log("offer 发送成功，clientId:", clientId);

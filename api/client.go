@@ -44,52 +44,6 @@ func registerClientConnection(client *ClientConnection) {
 	log.Printf("客户端 %s 已连接", client.ID)
 }
 
-// 处理客户端消息的函数类型
-type ClientMessageHandler func(clientID string, messageType string, payload interface{})
-
-// HandleClientMessages 处理来自客户端的消息
-func HandleClientMessages(client *ClientConnection, handler ClientMessageHandler) {
-	defer func() {
-		// 连接关闭时，清理资源
-		client.Conn.Close()
-		clientsMutex.Lock()
-		delete(clients, client.ID)
-		clientsMutex.Unlock()
-		log.Printf("客户端 %s 已断开连接", client.ID)
-	}()
-
-	for {
-		// 读取消息
-		messageType, message, err := client.Conn.ReadMessage()
-		if err != nil {
-			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				log.Printf("读取客户端消息错误: %v", err)
-			}
-			break
-		}
-
-		// 只处理文本消息
-		if messageType != websocket.TextMessage {
-			continue
-		}
-
-		// 解析消息
-		var wsMessage struct {
-			Type    string      `json:"type"`
-			Payload interface{} `json:"payload"`
-		}
-		if err := json.Unmarshal(message, &wsMessage); err != nil {
-			log.Printf("解析客户端消息失败: %v", err)
-			continue
-		}
-
-		// 调用处理函数
-		if handler != nil {
-			handler(client.ID, wsMessage.Type, wsMessage.Payload)
-		}
-	}
-}
-
 // SendMessageToClient 向客户端发送消息
 func SendMessageToClient(clientID string, messageType string, payload interface{}) error {
 	clientsMutex.RLock()
@@ -131,12 +85,46 @@ func HandleClientConnection(conn *websocket.Conn, clientIDParam string, webrtcSe
 	// 设置发送消息到客户端的回调函数
 	services.SetSendToClientFunc(SendMessageToClient)
 
-	// 定义消息处理函数
-	messageHandler := func(clientID string, messageType string, payload interface{}) {
-		switch messageType {
+	defer func() {
+		// 连接关闭时，清理资源
+		client.Conn.Close()
+		clientsMutex.Lock()
+		delete(clients, client.ID)
+		clientsMutex.Unlock()
+		log.Printf("客户端 %s 已断开连接", client.ID)
+	}()
+
+	for {
+		// 读取消息
+		messageType, message, err := client.Conn.ReadMessage()
+		if err != nil {
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+				log.Printf("读取客户端消息错误: %v", err)
+			}
+			break
+		}
+
+		// 只处理文本消息
+		if messageType != websocket.TextMessage {
+			continue
+		}
+
+		// 解析消息
+		var wsMessage struct {
+			Type    string      `json:"type"`
+			Payload interface{} `json:"payload"`
+		}
+		if err := json.Unmarshal(message, &wsMessage); err != nil {
+			log.Printf("解析客户端消息失败: %v", err)
+			continue
+		}
+
+		log.Printf("收到客户端消息类型: %s, 内容: %+v", wsMessage.Type, wsMessage.Payload)
+
+		switch wsMessage.Type {
 		case services.MsgTypeWebRTCOffer:
 			// 处理WebRTC Offer
-			if data, ok := payload.(map[string]interface{}); ok {
+			if data, ok := wsMessage.Payload.(map[string]interface{}); ok {
 				log.Printf("收到WebRTC Offer: %v\n要转发到service_b", data)
 
 				// 支持不同格式的任务ID
@@ -160,7 +148,7 @@ func HandleClientConnection(conn *websocket.Conn, clientIDParam string, webrtcSe
 			}
 		case services.MsgTypeICECandidate:
 			// 处理ICE Candidate
-			if data, ok := payload.(map[string]interface{}); ok {
+			if data, ok := wsMessage.Payload.(map[string]interface{}); ok {
 				var candidate string
 
 				// 处理player.html和index.html可能发送的不同格式
@@ -183,7 +171,4 @@ func HandleClientConnection(conn *websocket.Conn, clientIDParam string, webrtcSe
 			}
 		}
 	}
-
-	// 处理客户端消息
-	HandleClientMessages(client, messageHandler)
 }
