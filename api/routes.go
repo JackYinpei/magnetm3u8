@@ -31,4 +31,5 @@ func SetupRoutes(router *gin.Engine) {
 	// 静态文件服务（前端资源）
 	router.Static("/static", "./static")
 	router.StaticFile("/", "./static/index.html")
+	router.StaticFile("/player", "./static/player.html")
 }

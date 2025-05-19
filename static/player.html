@@ -75,7 +75,7 @@
         // const signalingServerUrl = "ws://43.156.74.32:8090/ws";
         // 创建新连接
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const signalingServerUrl = `${protocol}//${window.location.host}:7070/ws/client?client_id=${clientId}`;
+        const signalingServerUrl = `${protocol}//${window.location.host}/ws/client?client_id=${clientId}`;
 
         let ws;                // WebSocket 对象
         let pc;                // RTCPeerConnection 对象

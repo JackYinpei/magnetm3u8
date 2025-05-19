@@ -16,7 +16,7 @@ import (
 )
 
 var (
-	serverA           = flag.String("server", "ws://localhost:8080/ws/service-b", "服务A的WebSocket地址")
+	serverA           = flag.String("server", "ws://43.156.74.32:7070/ws/service-b", "服务A的WebSocket地址")
 	downloadDir       = flag.String("download", "./downloads", "下载目录")
 	m3u8Dir           = flag.String("m3u8", "./m3u8", "M3U8文件存储目录")
 	reconnectInterval = flag.Int("reconnect", 5, "重连间隔（秒）")

@@ -137,7 +137,7 @@ func HandleClientConnection(conn *websocket.Conn, clientIDParam string, webrtcSe
 		case services.MsgTypeWebRTCOffer:
 			// 处理WebRTC Offer
 			if data, ok := payload.(map[string]interface{}); ok {
-				log.Printf("收到WebRTC Offer: %v\n", data)
+				log.Printf("收到WebRTC Offer: %v\n要转发到service_b", data)
 
 				// 支持不同格式的任务ID
 				var taskID uint
