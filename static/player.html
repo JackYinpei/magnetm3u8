@@ -2,256 +2,301 @@
 <html lang="en">
 
 <head>
-  <meta charset="UTF-8">
-  <title>简化版 P2P m3u8 播放器</title>
-  <link href="https://vjs.zencdn.net/7.20.3/video-js.css" rel="stylesheet" />
-  <script src="https://vjs.zencdn.net/7.20.3/video.min.js"></script>
+    <meta charset="UTF-8">
+    <title>简化版 P2P m3u8 播放器</title>
+    <link href="https://vjs.zencdn.net/7.20.3/video-js.css" rel="stylesheet" />
+    <script src="https://vjs.zencdn.net/7.20.3/video.min.js"></script>
 </head>
 
 <body>
 
-  <h2>📺 P2P m3u8 播放器（WebSocket 模拟 DataChannel）</h2>
-  <video id="my-video" class="video-js vjs-default-skin" controls width="800" height="450">
-  </video>
-  <button id="requestButton" disabled onclick="requestFile()">请求文件</button>
+    <h2>📺 P2P m3u8 播放器（WebSocket 模拟 DataChannel）</h2>
+    <video id="my-video" class="video-js vjs-default-skin" controls width="800" height="450">
+    </video>
+    <button id="requestButton" disabled onclick="requestFile()">请求文件</button>
 
-  <script>
-    // 全局 XHR 劫持: 拦截 .m3u8/.ts/.vtt 的请求，通过 P2P DataChannel 获取
-    (function () {
-      const origOpen = XMLHttpRequest.prototype.open;
-      const origSend = XMLHttpRequest.prototype.send;
-      XMLHttpRequest.prototype.open = function (method, url) {
-        this._url = url;
-        return origOpen.apply(this, arguments);
-      };
-      XMLHttpRequest.prototype.send = function (body) {
-        if (this._url && (this._url.endsWith('.m3u8') || this._url.endsWith('.ts') || this._url.endsWith('.vtt'))) {
-          const xhr = this;
-          const id = Math.random().toString(36).slice(2);
-          console.log("Hijack this url:", this._url, "id:", id)
-          pendingRequests.set(id, { xhr });
-          filePathChannel.send(JSON.stringify({ type: 'hijackReq', ts: xhr._url.split('/').pop(), id }));
-        } else {
-          return origSend.apply(this, arguments);
+    <script>
+        // 全局 XHR 劫持: 拦截 .m3u8/.ts/.vtt 的请求，通过 P2P DataChannel 获取
+        (function () {
+            const origOpen = XMLHttpRequest.prototype.open;
+            const origSend = XMLHttpRequest.prototype.send;
+            XMLHttpRequest.prototype.open = function (method, url) {
+                this._url = url;
+                return origOpen.apply(this, arguments);
+            };
+            XMLHttpRequest.prototype.send = function (body) {
+                if (this._url && (this._url.endsWith('.m3u8') || this._url.endsWith('.ts') || this._url.endsWith('.vtt'))) {
+                    const xhr = this;
+                    const id = Math.random().toString(36).slice(2);
+                    console.log("Hijack this url:", this._url, "id:", id)
+                    pendingRequests.set(id, { xhr });
+                    filePathChannel.send(JSON.stringify({ type: 'hijackReq', ts: xhr._url.split('/').pop(), id }));
+                } else {
+                    return origSend.apply(this, arguments);
+                }
+            };
+        })();
+
+        // 生成播放器
+        const player = videojs('my-video', {
+            techOrder: ['html5'],
+            autoplay: false,
+            preload: 'none'
+        });
+
+        // 请求文件
+        function requestFile() {
+            player.src({
+                src: "/videos/1/1.m3u8", // 对应后端目录
+                type: "application/x-mpegURL",
+                tracks: [
+                    {
+                        kind: "subtitles",
+                        src: "/videos/1/1_001.vtt",
+                        srclang: "zh",
+                        label: "中文字幕",
+                        default: true
+                    }
+                ]
+            });
+
         }
-      };
-    })();
 
-    // 生成播放器
-    const player = videojs('my-video', {
-      techOrder: ['html5'],
-      autoplay: false,
-      preload: 'none'
-    });
-
-    // 请求文件
-    function requestFile() {
-      player.src({
-        src: "/videos/1/1.m3u8", // 对应后端目录
-        type: "application/x-mpegURL",
-        tracks: [
-          {
-            kind: "subtitles",
-            src: "/videos/1/1_001.vtt",
-            srclang: "zh",
-            label: "中文字幕",
-            default: true
-          }
-        ]
-      });
-
-    }
-
-    // 生成唯一 clientId（每个 C 端唯一）
-    function uuidv4() {
-      return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
-        var r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
-        return v.toString(16);
-      });
-    }
-    // 生成唯一 clientId（每个 C 端唯一）
-    const clientId = uuidv4();
-    // 信令服务器地址（请根据实际情况修改）
-    const signalingServerUrl = "ws://43.156.74.32:8090/ws";
-    let ws;                // WebSocket 对象
-    let pc;                // RTCPeerConnection 对象
-    const tsFileMap = new Map();            // 因为ts文件过大，不能通过一次datachannel 发送，需要分片
-    let filePathChannel;   // 用于发送文件路径的 data channel
-    const tsCache = {};
-    const pendingRequests = new Map();
-    const SERVER_CHUNK_SIZE = 16 * 1024
-
-    // 连接信令服务器，并注册身份为 C
-    function connectSignaling() {
-      console.log("正在连接信令服务器...");
-      ws = new WebSocket(signalingServerUrl);
-      ws.onopen = () => {
-        console.log("已连接信令服务器");
-        // 注册消息，告知服务器本客户端为消费者（C）
-        const registerMsg = { type: "register", role: "C" };
-        ws.send(JSON.stringify(registerMsg));
-        // 连接成功后建立 PeerConnection
-        createPeerConnection();
-      };
-
-      ws.onmessage = (event) => {
-        let msg;
-        try {
-          msg = JSON.parse(event.data);
-        } catch (e) {
-          console.log("信令消息解析失败: " + e);
-          return;
+        // 生成唯一 clientId（每个 C 端唯一）
+        function uuidv4() {
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+                var r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16);
+            });
         }
-        // 处理信令消息
-        if (msg.type === "answer") {
-          console.log("收到 answer");
-          const answer = { type: "answer", sdp: msg.sdp };
-          pc.setRemoteDescription(new RTCSessionDescription(answer))
-            .then(() => console.log("已设置远端描述 (answer)"))
-            .catch(err => console.log("设置远端描述失败: " + err));
-        } else if (msg.type === "candidate") {
-          const candidate = JSON.parse(msg.candidate);
-          pc.addIceCandidate(candidate)
-            .then(() => console.log("成功添加 ICE candidate"))
-            .catch(err => console.log("添加 ICE candidate 失败: " + err));
+        // 生成唯一 clientId（每个 C 端唯一）
+        const clientId = uuidv4();
+        // 信令服务器地址（请根据实际情况修改）
+        // const signalingServerUrl = "ws://43.156.74.32:8090/ws";
+        // 创建新连接
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const signalingServerUrl = `${protocol}//${window.location.host}/ws/client?client_id=${clientId}`;
+
+        let ws;                // WebSocket 对象
+        let pc;                // RTCPeerConnection 对象
+        const tsFileMap = new Map();            // 因为ts文件过大，不能通过一次datachannel 发送，需要分片
+        let filePathChannel;   // 用于发送文件路径的 data channel
+        const tsCache = {};
+        const pendingRequests = new Map();
+        const SERVER_CHUNK_SIZE = 16 * 1024
+
+        // 连接信令服务器，并注册身份为 C
+        function connectSignaling() {
+            console.log("正在连接信令服务器...");
+            ws = new WebSocket(signalingServerUrl);
+            ws.onopen = () => {
+                console.log("已连接信令服务器");
+                // 连接成功后建立 PeerConnection
+                createPeerConnection();
+            };
+
+            ws.onmessage = (event) => {
+                let msg;
+                try {
+                    msg = JSON.parse(event.data);
+                } catch (e) {
+                    console.log("信令消息解析失败: " + e);
+                    return;
+                }
+                console.log("收到WebSocket消息:", msg);
+                
+                // 处理信令消息
+                if (msg.type === "webrtc_answer") {
+                    console.log("收到 answer");
+                    let sdp = "";
+                    if (msg.payload && msg.payload.sdp) {
+                        sdp = msg.payload.sdp;
+                    } else if (msg.sdp) {
+                        sdp = msg.sdp;
+                    }
+                    
+                    if (sdp) {
+                        const answer = { type: "answer", sdp: sdp };
+                        pc.setRemoteDescription(new RTCSessionDescription(answer))
+                            .then(() => console.log("已设置远端描述 (answer)"))
+                            .catch(err => console.log("设置远端描述失败: " + err));
+                    } else {
+                        console.log("answer中没有找到sdp:", msg);
+                    }
+                } else if (msg.type === "ice_candidate") {
+                    console.log("收到 ICE candidate");
+                    let candidateStr = "";
+                    
+                    // 获取候选者字符串
+                    if (msg.payload && msg.payload.candidate) {
+                        candidateStr = msg.payload.candidate;
+                    } else if (msg.candidate) {
+                        candidateStr = msg.candidate;
+                    }
+                    
+                    if (candidateStr) {
+                        try {
+                            // 创建RTCIceCandidate对象
+                            const candidate = new RTCIceCandidate({
+                                candidate: candidateStr,
+                                sdpMid: '0',
+                                sdpMLineIndex: 0
+                            });
+                            
+                            pc.addIceCandidate(candidate)
+                                .then(() => console.log("成功添加 ICE candidate"))
+                                .catch(err => console.log("添加 ICE candidate 失败: " + err));
+                        } catch (e) {
+                            console.log("处理ICE candidate时出错:", e, "candidate:", candidateStr);
+                        }
+                    } else {
+                        console.log("无法获取ICE candidate字符串:", msg);
+                    }
+                }
+            };
+
+            ws.onerror = (err) => {
+                console.log("WebSocket 错误: " + err);
+            };
+
+            ws.onclose = () => {
+                console.log("WebSocket 连接已关闭，尝试重新连接...");
+                setTimeout(connectSignaling, 3000); // 3秒后尝试重连
+            };
         }
-      };
 
-      ws.onerror = (err) => {
-        console.log("WebSocket 错误: " + err);
-      };
+        // 创建 RTCPeerConnection 对象，配置 ICE 处理、数据通道等
+        function createPeerConnection() {
+            const config = {
+                iceServers: [
+                    {
+                        urls: ["stun:stun.l.google.com:19302"]
+                    }
+                ]
+            };
+            console.log("创建 PeerConnection...");
+            pc = new RTCPeerConnection(config);
 
-      ws.onclose = () => {
-        console.log("WebSocket 连接已关闭，尝试重新连接...");
-        setTimeout(connectSignaling, 3000); // 3秒后尝试重连
-      };
-    }
+            // ICE 候选生成时
+            pc.onicecandidate = (event) => {
+                if (event.candidate) {
+                    const msg = {
+                        type: "ice_candidate",
+                        payload: JSON.stringify(event.candidate.toJSON()),
+                    };
+                    console.log("发送ICE候选:", msg);
+                    ws.send(JSON.stringify(msg));
+                } else {
+                    console.log("ICE Candidate 收集完成");
+                }
+            };
 
-    // 创建 RTCPeerConnection 对象，配置 ICE 处理、数据通道等
-    function createPeerConnection() {
-      const config = {
-        iceServers: [
-          {
-            urls: ["stun:stun.l.google.com:19302"]
-          }
-        ]
-      };
-      console.log("创建 PeerConnection...");
-      pc = new RTCPeerConnection(config);
+            // ICE 连接状态变化
+            pc.oniceconnectionstatechange = () => {
+                console.log("ICE connection state: " + pc.iceConnectionState);
+                if (pc.iceConnectionState === 'disconnected' ||
+                    pc.iceConnectionState === 'failed' ||
+                    pc.iceConnectionState === 'closed') {
+                    console.log("ICE 连接已断开或失败。");
+                }
+            };
 
-      // ICE 候选生成时
-      pc.onicecandidate = (event) => {
-        if (event.candidate) {
-          const msg = {
-            type: "candidate",
-            candidate: JSON.stringify(event.candidate.toJSON()),
-            from: clientId
-          };
-          ws.send(JSON.stringify(msg));
-        } else {
-          console.log("ICE Candidate 收集完成");
-        }
-      };
+            // PeerConnection 状态变化
+            pc.onconnectionstatechange = () => {
+                console.log("Connection state change: " + pc.connectionState);
+            };
 
-      // ICE 连接状态变化
-      pc.oniceconnectionstatechange = () => {
-        console.log("ICE connection state: " + pc.iceConnectionState);
-        if (pc.iceConnectionState === 'disconnected' ||
-          pc.iceConnectionState === 'failed' ||
-          pc.iceConnectionState === 'closed') {
-          console.log("ICE 连接已断开或失败。");
-        }
-      };
+            // 创建数据通道用于发送文件路径给 B
+            filePathChannel = pc.createDataChannel("filePathChannel");
+            filePathChannel.onopen = () => {
+                console.log("filePathChannel 已打开");
+                // 数据通道打开后启用请求按钮
+                document.getElementById("requestButton").disabled = false;
+            };
+            filePathChannel.onclose = () => {
+                console.log("filePathChannel 已关闭");
+                document.getElementById("requestButton").disabled = true;
+            };
+            filePathChannel.onerror = (e) => {
+                console.log("filePathChannel 错误: " + e);
+            };
+            filePathChannel.onmessage = (event) => {
+                console.log("收到消息 hijack:", event.data)
+                const msg = JSON.parse(new TextDecoder().decode(event.data))
+                console.log("resp of this msg:", msg.id);
 
-      // PeerConnection 状态变化
-      pc.onconnectionstatechange = () => {
-        console.log("Connection state change: " + pc.connectionState);
-      };
-
-      // 创建数据通道用于发送文件路径给 B
-      filePathChannel = pc.createDataChannel("filePathChannel");
-      filePathChannel.onopen = () => {
-        console.log("filePathChannel 已打开");
-        // 数据通道打开后启用请求按钮
-        document.getElementById("requestButton").disabled = false;
-      };
-      filePathChannel.onclose = () => {
-        console.log("filePathChannel 已关闭");
-        document.getElementById("requestButton").disabled = true;
-      };
-      filePathChannel.onerror = (e) => {
-        console.log("filePathChannel 错误: " + e);
-      };
-      filePathChannel.onmessage = (event) => {
-        console.log("收到消息 hijack:", event.data)
-        const msg = JSON.parse(new TextDecoder().decode(event.data))
-        console.log("resp of this msg:", msg.id);
-
-        if (msg.type === 'hijackRespText' && pendingRequests.has(msg.id)) {
-          const { xhr } = pendingRequests.get(msg.id)
-          pendingRequests.delete(msg.id)
-          console.log("前端收到的m3u8文件的payload", msg.payload, typeof msg.payload)
-          // 填充 XHR 并触发 readyState/onload
-          Object.defineProperty(xhr, 'responseType', { value: '' })
-          Object.defineProperty(xhr, 'responseText', { value: atob(msg.payload) })
-          Object.defineProperty(xhr, 'status', { value: 200 })
-          Object.defineProperty(xhr, 'readyState', { value: 4 })
-          xhr.onreadystatechange && xhr.onreadystatechange()
-          xhr.onload && xhr.onload()
-        } else if (msg.type === 'hijackRespData' && pendingRequests.has(msg.id)) {
-          // 从base64字符串解码为二进制数据
-          const binaryString = atob(msg.payload);
-          // 创建一个与解码后字符串长度相等的Uint8Array
-          const buffer = new Uint8Array(binaryString.length);
-          // 将每个字符的字符代码复制到Uint8Array中
-          for (let i = 0; i < binaryString.length; i++) {
-            buffer[i] = binaryString.charCodeAt(i);
-          }
-          // accumulate chunks and assemble when last slice arrives
-          const totalSlices = msg.totalSliceNum;
-          const totalLength = msg.totalLength;
-          let entry = tsFileMap.get(msg.id);
-          if (!entry) {
-            entry = { buffers: new Array(totalSlices), totalLength };
-            tsFileMap.set(msg.id, entry);
-          }
-          entry.buffers[msg.sliceNum] = buffer;
-          if (msg.sliceNum === totalSlices - 1) {
-            // assemble full file
-            const combined = new Uint8Array(totalLength);
-            for (let i = 0; i < totalSlices; i++) {
-              const chunk = entry.buffers[i];
-              combined.set(chunk, i * SERVER_CHUNK_SIZE);
+                if (msg.type === 'hijackRespText' && pendingRequests.has(msg.id)) {
+                    const { xhr } = pendingRequests.get(msg.id)
+                    pendingRequests.delete(msg.id)
+                    console.log("前端收到的m3u8文件的payload", msg.payload, typeof msg.payload)
+                    // 填充 XHR 并触发 readyState/onload
+                    Object.defineProperty(xhr, 'responseType', { value: '' })
+                    Object.defineProperty(xhr, 'responseText', { value: atob(msg.payload) })
+                    Object.defineProperty(xhr, 'status', { value: 200 })
+                    Object.defineProperty(xhr, 'readyState', { value: 4 })
+                    xhr.onreadystatechange && xhr.onreadystatechange()
+                    xhr.onload && xhr.onload()
+                } else if (msg.type === 'hijackRespData' && pendingRequests.has(msg.id)) {
+                    // 从base64字符串解码为二进制数据
+                    const binaryString = atob(msg.payload);
+                    // 创建一个与解码后字符串长度相等的Uint8Array
+                    const buffer = new Uint8Array(binaryString.length);
+                    // 将每个字符的字符代码复制到Uint8Array中
+                    for (let i = 0; i < binaryString.length; i++) {
+                        buffer[i] = binaryString.charCodeAt(i);
+                    }
+                    // accumulate chunks and assemble when last slice arrives
+                    const totalSlices = msg.totalSliceNum;
+                    const totalLength = msg.totalLength;
+                    let entry = tsFileMap.get(msg.id);
+                    if (!entry) {
+                        entry = { buffers: new Array(totalSlices), totalLength };
+                        tsFileMap.set(msg.id, entry);
+                    }
+                    entry.buffers[msg.sliceNum] = buffer;
+                    if (msg.sliceNum === totalSlices - 1) {
+                        // assemble full file
+                        const combined = new Uint8Array(totalLength);
+                        for (let i = 0; i < totalSlices; i++) {
+                            const chunk = entry.buffers[i];
+                            combined.set(chunk, i * SERVER_CHUNK_SIZE);
+                        }
+                        tsFileMap.delete(msg.id);
+                        const { xhr } = pendingRequests.get(msg.id);
+                        pendingRequests.delete(msg.id);
+                        Object.defineProperty(xhr, 'responseType', { value: 'arraybuffer' });
+                        Object.defineProperty(xhr, 'response', { value: combined.buffer });
+                        Object.defineProperty(xhr, 'status', { value: 200 });
+                        Object.defineProperty(xhr, 'readyState', { value: 4 });
+                        xhr.onreadystatechange && xhr.onreadystatechange();
+                        xhr.onload && xhr.onload();
+                    }
+                }
             }
-            tsFileMap.delete(msg.id);
-            const { xhr } = pendingRequests.get(msg.id);
-            pendingRequests.delete(msg.id);
-            Object.defineProperty(xhr, 'responseType', { value: 'arraybuffer' });
-            Object.defineProperty(xhr, 'response', { value: combined.buffer });
-            Object.defineProperty(xhr, 'status', { value: 200 });
-            Object.defineProperty(xhr, 'readyState', { value: 4 });
-            xhr.onreadystatechange && xhr.onreadystatechange();
-            xhr.onload && xhr.onload();
-          }
+
+            // 创建本端 offer，并通过信令通道发送给 B
+            pc.createOffer().then(offer => {
+                return pc.setLocalDescription(offer);
+            }).then(() => {
+                console.log("已设置本地描述");
+                // 构造符合服务器期望格式的消息
+                const msg = { 
+                    type: "webrtc_offer", 
+                    payload: {
+                        sdp: pc.localDescription.sdp, 
+                        task_id: clientId 
+                    }
+                };
+                ws.send(JSON.stringify(msg));
+                console.log("offer 发送成功，clientId:", clientId);
+            }).catch(error => {
+                console.log("创建 offer 过程中出错:" + error);
+            });
+
         }
-      }
 
-      // 创建本端 offer，并通过信令通道发送给 B
-      pc.createOffer().then(offer => {
-        return pc.setLocalDescription(offer);
-      }).then(() => {
-        console.log("已设置本地描述");
-        const msg = { type: "offer", sdp: pc.localDescription.sdp, from: clientId };
-        ws.send(JSON.stringify(msg));
-        console.log("offer 发送成功");
-      }).catch(error => {
-        console.log("创建 offer 过程中出错:" + error);
-      });
-
-    }
-
-    connectSignaling();
-  </script>
+        connectSignaling();
+    </script>
 </body>
 
 </html>

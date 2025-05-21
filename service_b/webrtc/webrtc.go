@@ -1,15 +1,18 @@
 package webrtc
 
 import (
-	"fmt"
-	"io/ioutil"
+	"encoding/json"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/pion/webrtc/v3"
 )
+
+const chunkSize = 16 * 1024
 
 // Connection 表示与单个客户端的WebRTC连接
 type Connection struct {
@@ -80,35 +83,104 @@ func (m *Manager) HandleOffer(wsConn interface {
 	}
 	conn.peerConn = peerConn
 
-	// 创建数据通道
-	dataChannel, err := peerConn.CreateDataChannel("m3u8", nil)
-	if err != nil {
-		log.Printf("创建DataChannel失败: %v", err)
-		peerConn.Close()
-		return
-	}
-	conn.dataChannel = dataChannel
+	// 监听前端创建的数据通道
+	peerConn.OnDataChannel(func(dataChannel *webrtc.DataChannel) {
+		if dataChannel.Label() == "filePathChannel" {
+			conn.dataChannel = dataChannel
 
-	// 设置数据通道回调
-	dataChannel.OnOpen(func() {
-		conn.mu.Lock()
-		conn.isConnected = true
-		conn.mu.Unlock()
-		log.Printf("与客户端 %s 的数据通道已打开", clientID)
+			// 设置数据通道回调
+			dataChannel.OnOpen(func() {
+				conn.mu.Lock()
+				conn.isConnected = true
+				conn.mu.Unlock()
+				log.Printf("与客户端 %s 的数据通道已打开", clientID)
+			})
 
-		// 发送M3U8和ts文件
-		go m.sendM3U8Files(conn)
-	})
+			dataChannel.OnMessage(func(msg webrtc.DataChannelMessage) {
+				log.Printf("收到客户端 %s 的消息: %s", clientID, string(msg.Data))
+				log.Println("收到消息 hijack:", msg.Data)
+				var req struct {
+					Type string `json:"type"`
+					Ts   string `json:"ts"`
+					Id   string `json:"id"`
+				}
+				_ = json.Unmarshal(msg.Data, &req)
 
-	dataChannel.OnMessage(func(msg webrtc.DataChannelMessage) {
-		log.Printf("收到客户端 %s 的消息: %s", clientID, string(msg.Data))
-	})
+				if req.Type == "hijackReq" {
+					log.Println("拦截请求:", req.Ts)
+					if !checkPath(req.Ts) {
+						log.Println("路径不合法:", req.Ts)
+						return
+					}
+					path := "./m3u8/task_0/" + req.Ts
+					file, err := os.Open(path)
+					if err != nil {
+						log.Println("读取失败:", err)
+						return
+					}
+					defer file.Close()
 
-	dataChannel.OnClose(func() {
-		log.Printf("与客户端 %s 的数据通道已关闭", clientID)
-		conn.mu.Lock()
-		conn.isConnected = false
-		conn.mu.Unlock()
+					info, err := file.Stat()
+					if err != nil {
+						log.Println("获取文件信息失败:", err)
+						return
+					}
+					totalSliceNum := int((info.Size() + int64(chunkSize) - 1) / int64(chunkSize))
+					thisSendNum := 0
+
+					buf := make([]byte, chunkSize) // 16KB
+					for {
+						n, err := file.Read(buf)
+						if err != nil {
+							if err == io.EOF {
+								break
+							}
+							log.Println("Read error:", err)
+							return
+						}
+						var resp map[string]interface{}
+						if strings.HasSuffix(req.Ts, ".m3u8") || strings.HasSuffix(req.Ts, ".vtt") {
+							resp = map[string]interface{}{
+								"type":          "hijackRespText",
+								"id":            req.Id,
+								"payload":       buf[:n],
+								"sliceNum":      thisSendNum,
+								"totalSliceNum": totalSliceNum,
+								"totalLength":   info.Size(),
+							}
+						} else {
+							resp = map[string]interface{}{
+								"type":          "hijackRespData",
+								"id":            req.Id,
+								"payload":       buf[:n],
+								"sliceNum":      thisSendNum,
+								"totalSliceNum": totalSliceNum,
+								"totalLength":   info.Size(),
+							}
+						}
+						respByte, err := json.Marshal(resp)
+						if err != nil {
+							log.Println("发送失败:", err)
+							return
+						}
+						conn.dataChannel.Send(respByte)
+						thisSendNum++
+					}
+
+					// 发送 ts 数据
+					log.Println("发送成功 for")
+				} else {
+					panic("not supported type: " + req.Type)
+				}
+			})
+
+			dataChannel.OnClose(func() {
+				log.Printf("与客户端 %s 的数据通道已关闭", clientID)
+				conn.mu.Lock()
+				conn.isConnected = false
+				conn.mu.Unlock()
+			})
+		}
 	})
 
 	// 处理ICE候选
@@ -196,82 +268,6 @@ func (m *Manager) AddICECandidate(clientID string, candidate string) {
 	}
 }
 
-// sendM3U8Files 发送M3U8和TS文件
-func (m *Manager) sendM3U8Files(conn *Connection) {
-	// 获取M3U8文件路径
-	taskDir := filepath.Join(m.m3u8Dir, fmt.Sprintf("task_%d", conn.taskID))
-	m3u8Path := filepath.Join(taskDir, "index.m3u8")
-
-	// 检查M3U8文件是否存在
-	if _, err := os.Stat(m3u8Path); os.IsNotExist(err) {
-		log.Printf("M3U8文件不存在: %s", m3u8Path)
-		return
-	}
-
-	// 读取M3U8文件
-	m3u8Data, err := ioutil.ReadFile(m3u8Path)
-	if err != nil {
-		log.Printf("读取M3U8文件失败: %v", err)
-		return
-	}
-
-	// 发送M3U8文件内容
-	conn.mu.Lock()
-	if conn.isConnected && conn.dataChannel != nil {
-		err = conn.dataChannel.SendText("m3u8:" + string(m3u8Data))
-		if err != nil {
-			log.Printf("发送M3U8文件失败: %v", err)
-		}
-	}
-	conn.mu.Unlock()
-
-	// 扫描目录中的TS文件
-	files, err := ioutil.ReadDir(taskDir)
-	if err != nil {
-		log.Printf("读取TS文件目录失败: %v", err)
-		return
-	}
-
-	// 发送每个TS文件
-	for _, file := range files {
-		if filepath.Ext(file.Name()) == ".ts" {
-			tsPath := filepath.Join(taskDir, file.Name())
-			tsData, err := ioutil.ReadFile(tsPath)
-			if err != nil {
-				log.Printf("读取TS文件失败: %v", err)
-				continue
-			}
-
-			// 分块发送TS文件
-			chunkSize := 16 * 1024 // 16KB chunks
-			for i := 0; i < len(tsData); i += chunkSize {
-				end := i + chunkSize
-				if end > len(tsData) {
-					end = len(tsData)
-				}
-
-				chunk := tsData[i:end]
-				header := fmt.Sprintf("ts:%s:%d:%d", file.Name(), i, end-i)
-
-				conn.mu.Lock()
-				if !conn.isConnected || conn.dataChannel == nil {
-					conn.mu.Unlock()
-					return
-				}
-
-				// 发送TS文件块
-				err = conn.dataChannel.Send(append([]byte(header+":"), chunk...))
-				conn.mu.Unlock()
-
-				if err != nil {
-					log.Printf("发送TS文件块失败: %v", err)
-					return
-				}
-			}
-		}
-	}
-}
-
 // Close 关闭所有WebRTC连接
 func (m *Manager) Close() {
 	m.mu.Lock()
@@ -282,4 +278,22 @@ func (m *Manager) Close() {
 			conn.peerConn.Close()
 		}
 	}
+}
+
+func checkPath(path string) bool {
+	// 禁止绝对路径
+	if filepath.IsAbs(path) {
+		log.Println("路径不合法: 绝对路径不允许", path)
+		return false
+	}
+	// 禁止父级目录跳转
+	if strings.Contains(path, "../") {
+		log.Println("路径不合法: 包含上级目录", path)
+		return false
+	}
+	if strings.Contains(path, "..\\") {
+		log.Println("路径不合法: 包含上级目录", path)
+		return false
+	}
+	return true
 }
