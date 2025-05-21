@@ -86,9 +86,30 @@ func (wm *WebSocketManager) RegisterConnection(conn *websocket.Conn) {
 
 // readMessages 读取来自服务B的消息
 func (wm *WebSocketManager) readMessages() {
+	// 使用recover避免panic导致整个程序崩溃
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("WebSocket读取消息处理发生panic: %v", r)
+			wm.handleDisconnect()
+		}
+	}()
+
 	for {
+		// 先检查连接是否有效
+		wm.mu.RLock()
+		if !wm.isConnected || wm.conn == nil {
+			wm.mu.RUnlock()
+			log.Printf("WebSocket连接无效，停止读取消息")
+			return
+		}
+		conn := wm.conn
+		wm.mu.RUnlock()
+
+		// 设置读取超时
+		_ = conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+
 		var message WebSocketMessage
-		err := wm.conn.ReadJSON(&message)
+		err := conn.ReadJSON(&message)
 		if err != nil {
 			log.Printf("读取WebSocket消息错误: %v", err)
 			wm.handleDisconnect()
@@ -101,7 +122,15 @@ func (wm *WebSocketManager) readMessages() {
 		wm.mu.RUnlock()
 
 		if handler != nil {
-			handler(message)
+			func() {
+				// 使用recover避免消息处理中的panic导致消息循环退出
+				defer func() {
+					if r := recover(); r != nil {
+						log.Printf("WebSocket消息处理函数发生panic: %v", r)
+					}
+				}()
+				handler(message)
+			}()
 		}
 	}
 }
@@ -128,12 +157,26 @@ func (wm *WebSocketManager) handleDisconnect() {
 	wm.mu.Lock()
 	defer wm.mu.Unlock()
 
-	wm.isConnected = false
-	if wm.conn != nil {
-		wm.conn.Close()
-		wm.conn = nil
+	// 避免重复处理
+	if !wm.isConnected || wm.conn == nil {
+		return
 	}
 
+	wm.isConnected = false
+
+	// 尝试发送关闭消息
+	closeMsg := websocket.FormatCloseMessage(websocket.CloseNormalClosure, "服务关闭连接")
+
+	// 忽略发送关闭消息可能出现的错误
+	_ = wm.conn.WriteControl(websocket.CloseMessage, closeMsg, time.Now().Add(time.Second))
+
+	// 关闭连接
+	err := wm.conn.Close()
+	if err != nil {
+		log.Printf("关闭WebSocket连接出错: %v", err)
+	}
+
+	wm.conn = nil
 	log.Println("服务B断开连接")
 }
 

@@ -21,7 +21,7 @@ type Manager struct {
 func NewManager(inputDir, outputDir string) *Manager {
 	// 确保输出目录存在
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
-		log.Fatalf("创建M3U8输出目录失败: %v", err)
+		log.Fatalf("创建输出目录失败: %v", err)
 	}
 
 	return &Manager{
@@ -31,7 +31,7 @@ func NewManager(inputDir, outputDir string) *Manager {
 	}
 }
 
-// Transcode 将视频转码为M3U8格式
+// Transcode 将视频转为HLS格式(不做转码，只切片)并提取字幕
 func (m *Manager) Transcode(taskID uint, inputPath string) (string, error) {
 	// 检查文件是否存在
 	if _, err := os.Stat(inputPath); os.IsNotExist(err) {
@@ -56,76 +56,60 @@ func (m *Manager) Transcode(taskID uint, inputPath string) (string, error) {
 		m.mu.Unlock()
 	}()
 
-	// 检测文件类型并选择合适的转码配置
-	config := selectHLSConfig(inputPath)
+	// 使用默认HLS配置
+	config := DefaultHLSConfig()
 
-	// 使用HLSConverter进行转码
-	log.Printf("开始转码任务 %d: %s -> %s", taskID, inputPath, taskDir)
-	outputPath, err := ConvertToHLS(inputPath, taskDir, config)
-	if err != nil {
-		return "", fmt.Errorf("转码失败: %w", err)
+	// 对MKV文件启用字幕提取
+	ext := strings.ToLower(filepath.Ext(inputPath))
+	if ext == ".mkv" {
+		config.ExtractSubtitles = true
+		log.Printf("检测到MKV文件，启用字幕提取功能")
 	}
 
-	log.Printf("转码完成: %s", outputPath)
+	// 进行HLS切片处理(不做转码)
+	log.Printf("开始处理任务 %d: %s -> %s", taskID, inputPath, taskDir)
+	outputPath, err := ConvertToHLS(inputPath, taskDir, config)
+	if err != nil {
+		return "", fmt.Errorf("处理失败: %w", err)
+	}
+
+	log.Printf("处理完成: %s", outputPath)
 	return outputPath, nil
 }
 
-// selectHLSConfig 根据输入文件选择合适的HLS配置
-func selectHLSConfig(inputPath string) HLSConfig {
-	// 默认配置
-	config := DefaultHLSConfig()
-
-	// 获取文件扩展名
-	ext := strings.ToLower(filepath.Ext(inputPath))
-
-	// 根据文件类型调整配置
-	switch ext {
-	case ".mp4", ".mov", ".m4v":
-		// 对于常见的MP4类文件，使用默认配置即可
-	case ".mkv", ".avi", ".wmv":
-		// 对于更复杂的容器，可能需要更高质量的编码
-		config.VideoPreset = "slow"
-		config.VideoCRF = 20
-	case ".webm", ".vp9":
-		// 对于WebM格式，使用更高效的编码
-		config.VideoPreset = "faster"
-		config.VideoCRF = 22
-	case ".ts", ".m2ts":
-		// 对于已经是HLS兼容的格式，可以使用轻量级转码
-		config.VideoPreset = "ultrafast"
-		config.VideoCRF = 21
-	default:
-		// 对于其他格式，使用保守的设置
-		config.VideoPreset = "medium"
-		config.VideoCRF = 23
-	}
-
-	// 获取文件大小以决定是否调整质量
-	fileInfo, err := os.Stat(inputPath)
-	if err == nil {
-		// 对于大于1GB的文件，可以考虑使用高质量编码
-		if fileInfo.Size() > 1024*1024*1024 {
-			config.VideoCRF = 22 // 稍微提高质量
-		}
-	}
-
-	return config
-}
-
-// IsTranscoding 检查任务是否正在转码中
+// IsTranscoding 检查任务是否正在处理中
 func (m *Manager) IsTranscoding(taskID uint) bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.activeJobs[taskID]
 }
 
-// GetM3U8Path 获取转码后的M3U8文件路径
+// GetM3U8Path 获取生成的M3U8文件路径
 func (m *Manager) GetM3U8Path(taskID uint) string {
 	taskDir := filepath.Join(m.outputDir, fmt.Sprintf("task_%d", taskID))
 	return filepath.Join(taskDir, "index.m3u8")
 }
 
-// Close 关闭转码管理器
+// GetSubtitlePaths 获取提取的字幕文件路径
+func (m *Manager) GetSubtitlePaths(taskID uint) ([]string, error) {
+	taskDir := filepath.Join(m.outputDir, fmt.Sprintf("task_%d", taskID))
+
+	// 确保目录存在
+	if _, err := os.Stat(taskDir); os.IsNotExist(err) {
+		return nil, fmt.Errorf("任务目录不存在: %s", taskDir)
+	}
+
+	// 查找所有subtitle_*.* 文件
+	pattern := filepath.Join(taskDir, "subtitle_*.*")
+	matches, err := filepath.Glob(pattern)
+	if err != nil {
+		return nil, fmt.Errorf("查找字幕文件失败: %w", err)
+	}
+
+	return matches, nil
+}
+
+// Close 关闭管理器
 func (m *Manager) Close() {
 	// 清理资源，如有需要
 }

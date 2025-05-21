@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"time"
 
 	"magnetm3u8/services"
 
@@ -234,6 +235,9 @@ var upgrader = websocket.Upgrader{
 
 // HandleServiceBWebSocket 处理服务B的WebSocket连接
 func (c *Controller) HandleServiceBWebSocket(ctx *gin.Context) {
+	// 获取客户端IP
+	clientIP := ctx.ClientIP()
+
 	// 升级HTTP连接为WebSocket连接
 	conn, err := upgrader.Upgrade(ctx.Writer, ctx.Request, nil)
 	if err != nil {
@@ -243,9 +247,31 @@ func (c *Controller) HandleServiceBWebSocket(ctx *gin.Context) {
 		return
 	}
 
-	// 注册WebSocket连接
+	// 检查当前是否已有服务B连接
 	wsManager := services.GetWebSocketManager()
+	if wsManager.IsConnected() {
+		// 如果已经有连接，说明这是恶意连接尝试
+		log.Printf("检测到恶意连接尝试，来自IP: %s", clientIP)
+
+		// 发送拒绝消息
+		rejectMsg := struct {
+			Type    string `json:"type"`
+			Payload string `json:"payload"`
+		}{
+			Type:    "reject",
+			Payload: "Fuck you",
+		}
+		conn.WriteJSON(rejectMsg)
+
+		// 关闭连接
+		time.Sleep(200 * time.Millisecond) // 给一点时间发送消息
+		conn.Close()
+		return
+	}
+
+	// 注册WebSocket连接
 	wsManager.RegisterConnection(conn)
+	log.Printf("服务B已连接，IP: %s", clientIP)
 }
 
 // HandleClientWebSocket 处理客户端的WebSocket连接
