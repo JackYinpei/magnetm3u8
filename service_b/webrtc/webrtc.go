@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"io"
 	"log"
+	"magnetm3u8_service_b/utils"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 
@@ -112,7 +112,8 @@ func (m *Manager) HandleOffer(wsConn interface {
 						log.Println("路径不合法:", req.Ts)
 						return
 					}
-					path := "./m3u8/" + req.Ts
+					realPath := utils.ExtractPath(req.Ts)
+					path := "./m3u8/" + realPath
 					file, err := os.Open(path)
 					if err != nil {
 						log.Println("读取失败:", err)
@@ -281,11 +282,6 @@ func (m *Manager) Close() {
 }
 
 func checkPath(path string) bool {
-	// 禁止绝对路径
-	if filepath.IsAbs(path) {
-		log.Println("路径不合法: 绝对路径不允许", path)
-		return false
-	}
 	// 禁止父级目录跳转
 	if strings.Contains(path, "../") {
 		log.Println("路径不合法: 包含上级目录", path)

@@ -38,10 +38,22 @@
         })();
 
         // 生成播放器
+        // 生成播放器
         const player = videojs('my-video', {
             techOrder: ['html5'],
             autoplay: false,
-            preload: 'none'
+            preload: 'none',
+            liveui: false, // 禁用直播UI
+            fluid: true,   // 响应式布局
+            responsive: true,
+            html5: {
+                vhs: {
+                    overrideNative: true,
+                    enableLowInitialPlaylist: false,
+                    smoothQualityChange: false,
+                    useBandwidthFromLocalStorage: false
+                }
+            }
         });
 
         // 请求文件
@@ -51,12 +63,12 @@
             const taskId = urlParams.get('taskId') || 'task_0'; // 默认为task_0
 
             player.src({
-                src: `/${taskId}/index.m3u8`, // 对应后端目录
+                src: `/video/${taskId}/index.m3u8`, // 对应后端目录
                 type: "application/x-mpegURL",
                 tracks: [
                     {
                         kind: "subtitles",
-                        src: `/${taskId}/1_001.vtt`,
+                        src: `/video/${taskId}/1_001.vtt`,
                         srclang: "zh",
                         label: "中文字幕",
                         default: true
@@ -225,14 +237,11 @@
                 console.log("filePathChannel 错误: " + e);
             };
             filePathChannel.onmessage = (event) => {
-                console.log("收到消息 hijack:", event.data)
                 const msg = JSON.parse(new TextDecoder().decode(event.data))
-                console.log("resp of this msg:", msg.id);
 
                 if (msg.type === 'hijackRespText' && pendingRequests.has(msg.id)) {
                     const { xhr } = pendingRequests.get(msg.id)
                     pendingRequests.delete(msg.id)
-                    console.log("前端收到的m3u8文件的payload", msg.payload, typeof msg.payload)
                     // 填充 XHR 并触发 readyState/onload
                     Object.defineProperty(xhr, 'responseType', { value: '' })
                     Object.defineProperty(xhr, 'responseText', { value: atob(msg.payload) })
