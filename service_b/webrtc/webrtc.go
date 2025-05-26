@@ -112,7 +112,7 @@ func (m *Manager) HandleOffer(wsConn interface {
 						log.Println("路径不合法:", req.Ts)
 						return
 					}
-					path := "./m3u8/task_0/" + req.Ts
+					path := "./m3u8/" + req.Ts
 					file, err := os.Open(path)
 					if err != nil {
 						log.Println("读取失败:", err)

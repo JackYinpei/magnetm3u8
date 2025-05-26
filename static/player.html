@@ -30,7 +30,7 @@
                     const id = Math.random().toString(36).slice(2);
                     console.log("Hijack this url:", this._url, "id:", id)
                     pendingRequests.set(id, { xhr });
-                    filePathChannel.send(JSON.stringify({ type: 'hijackReq', ts: xhr._url.split('/').pop(), id }));
+                    filePathChannel.send(JSON.stringify({ type: 'hijackReq', ts: xhr._url, id }));
                 } else {
                     return origSend.apply(this, arguments);
                 }
@@ -46,13 +46,17 @@
 
         // 请求文件
         function requestFile() {
+            // 从URL参数中获取taskId
+            const urlParams = new URLSearchParams(window.location.search);
+            const taskId = urlParams.get('taskId') || 'task_0'; // 默认为task_0
+
             player.src({
-                src: "/videos/1/1.m3u8", // 对应后端目录
+                src: `/${taskId}/index.m3u8`, // 对应后端目录
                 type: "application/x-mpegURL",
                 tracks: [
                     {
                         kind: "subtitles",
-                        src: "/videos/1/1_001.vtt",
+                        src: `/${taskId}/1_001.vtt`,
                         srclang: "zh",
                         label: "中文字幕",
                         default: true
@@ -104,7 +108,7 @@
                     return;
                 }
                 console.log("收到WebSocket消息:", msg);
-                
+
                 // 处理信令消息
                 if (msg.type === "webrtc_answer") {
                     console.log("收到 answer");
@@ -114,7 +118,7 @@
                     } else if (msg.sdp) {
                         sdp = msg.sdp;
                     }
-                    
+
                     if (sdp) {
                         const answer = { type: "answer", sdp: sdp };
                         pc.setRemoteDescription(new RTCSessionDescription(answer))
@@ -126,14 +130,14 @@
                 } else if (msg.type === "ice_candidate") {
                     console.log("收到 ICE candidate");
                     let candidateStr = "";
-                    
+
                     // 获取候选者字符串
                     if (msg.payload && msg.payload.candidate) {
                         candidateStr = msg.payload.candidate;
                     } else if (msg.candidate) {
                         candidateStr = msg.candidate;
                     }
-                    
+
                     if (candidateStr) {
                         try {
                             // 创建RTCIceCandidate对象
@@ -142,7 +146,7 @@
                                 sdpMid: '0',
                                 sdpMLineIndex: 0
                             });
-                            
+
                             pc.addIceCandidate(candidate)
                                 .then(() => console.log("成功添加 ICE candidate"))
                                 .catch(err => console.log("添加 ICE candidate 失败: " + err));
@@ -280,11 +284,11 @@
             }).then(() => {
                 console.log("已设置本地描述");
                 // 构造符合服务器期望格式的消息
-                const msg = { 
-                    type: "webrtc_offer", 
+                const msg = {
+                    type: "webrtc_offer",
                     payload: {
-                        sdp: pc.localDescription.sdp, 
-                        task_id: clientId 
+                        sdp: pc.localDescription.sdp,
+                        task_id: clientId
                     }
                 };
                 ws.send(JSON.stringify(msg));

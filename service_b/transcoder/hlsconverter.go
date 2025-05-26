@@ -32,12 +32,13 @@ func ConvertToHLS(inputPath string, outputDir string, config HLSConfig) (string,
 		return "", fmt.Errorf("输入文件不存在: %s", err)
 	}
 
-	// 检查输出目录是否已存在
-	if _, err := os.Stat(outputDir); err == nil {
-		// 构建输出文件路径
-		outputName := "index.m3u8"
-		outputPath := filepath.Join(outputDir, outputName)
-		log.Println("输出目录已存在，返回输出文件路径: ", outputPath)
+	// 构建输出文件路径
+	outputName := "index.m3u8"
+	outputPath := filepath.Join(outputDir, outputName)
+
+	// 检查输出文件是否已存在
+	if _, err := os.Stat(outputPath); err == nil {
+		log.Println("输出文件已存在，返回输出文件路径: ", outputPath)
 		return outputPath, nil
 	}
 
@@ -53,10 +54,6 @@ func ConvertToHLS(inputPath string, outputDir string, config HLSConfig) (string,
 			// 继续处理，不因字幕提取失败而中断主流程
 		}
 	}
-
-	// 构建输出文件路径
-	outputName := "index.m3u8"
-	outputPath := filepath.Join(outputDir, outputName)
 
 	// 构建基本的FFmpeg命令，使用-c copy只做切片不做转码
 	args := []string{
