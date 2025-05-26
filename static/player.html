@@ -240,15 +240,47 @@
                 const msg = JSON.parse(new TextDecoder().decode(event.data))
 
                 if (msg.type === 'hijackRespText' && pendingRequests.has(msg.id)) {
-                    const { xhr } = pendingRequests.get(msg.id)
-                    pendingRequests.delete(msg.id)
-                    // 填充 XHR 并触发 readyState/onload
-                    Object.defineProperty(xhr, 'responseType', { value: '' })
-                    Object.defineProperty(xhr, 'responseText', { value: atob(msg.payload) })
-                    Object.defineProperty(xhr, 'status', { value: 200 })
-                    Object.defineProperty(xhr, 'readyState', { value: 4 })
-                    xhr.onreadystatechange && xhr.onreadystatechange()
-                    xhr.onload && xhr.onload()
+                    // 处理文本文件（m3u8、vtt）的分片传输
+                    const totalSlices = msg.totalSliceNum;
+                    const totalLength = msg.totalLength;
+                    let entry = tsFileMap.get(msg.id);
+                    if (!entry) {
+                        entry = { buffers: new Array(totalSlices), totalLength, isText: true };
+                        tsFileMap.set(msg.id, entry);
+                    }
+                    
+                    // 将base64解码为字节数组
+                    const binaryString = atob(msg.payload);
+                    const buffer = new Uint8Array(binaryString.length);
+                    for (let i = 0; i < binaryString.length; i++) {
+                        buffer[i] = binaryString.charCodeAt(i);
+                    }
+                    entry.buffers[msg.sliceNum] = buffer;
+                    
+                    // 检查是否是最后一个分片
+                    if (msg.sliceNum === totalSlices - 1) {
+                        // 组装完整文件
+                        const combined = new Uint8Array(totalLength);
+                        for (let i = 0; i < totalSlices; i++) {
+                            const chunk = entry.buffers[i];
+                            combined.set(chunk, i * SERVER_CHUNK_SIZE);
+                        }
+                        
+                        // 将字节数组转换为文本
+                        const text = new TextDecoder().decode(combined);
+                        
+                        tsFileMap.delete(msg.id);
+                        const { xhr } = pendingRequests.get(msg.id);
+                        pendingRequests.delete(msg.id);
+                        
+                        // 填充 XHR 并触发 readyState/onload
+                        Object.defineProperty(xhr, 'responseType', { value: '' });
+                        Object.defineProperty(xhr, 'responseText', { value: text });
+                        Object.defineProperty(xhr, 'status', { value: 200 });
+                        Object.defineProperty(xhr, 'readyState', { value: 4 });
+                        xhr.onreadystatechange && xhr.onreadystatechange();
+                        xhr.onload && xhr.onload();
+                    }
                 } else if (msg.type === 'hijackRespData' && pendingRequests.has(msg.id)) {
                     // 从base64字符串解码为二进制数据
                     const binaryString = atob(msg.payload);
@@ -286,7 +318,6 @@
                     }
                 }
             }
-
             // 创建本端 offer，并通过信令通道发送给 B
             pc.createOffer().then(offer => {
                 return pc.setLocalDescription(offer);
