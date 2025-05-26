@@ -1,6 +1,7 @@
 package webrtc
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"log"
@@ -144,7 +145,7 @@ func (m *Manager) HandleOffer(wsConn interface {
 							resp = map[string]interface{}{
 								"type":          "hijackRespText",
 								"id":            req.Id,
-								"payload":       buf[:n],
+								"payload":       base64.StdEncoding.EncodeToString(buf[:n]),
 								"sliceNum":      thisSendNum,
 								"totalSliceNum": totalSliceNum,
 								"totalLength":   info.Size(),
@@ -153,7 +154,7 @@ func (m *Manager) HandleOffer(wsConn interface {
 							resp = map[string]interface{}{
 								"type":          "hijackRespData",
 								"id":            req.Id,
-								"payload":       buf[:n],
+								"payload":       base64.StdEncoding.EncodeToString(buf[:n]),
 								"sliceNum":      thisSendNum,
 								"totalSliceNum": totalSliceNum,
 								"totalLength":   info.Size(),
@@ -167,7 +168,6 @@ func (m *Manager) HandleOffer(wsConn interface {
 						conn.dataChannel.Send(respByte)
 						thisSendNum++
 					}
-
 					// 发送 ts 数据
 					log.Println("发送成功 for")
 				} else {
