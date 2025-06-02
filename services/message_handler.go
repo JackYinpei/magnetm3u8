@@ -176,12 +176,15 @@ func (h *MessageHandler) handleTranscodeComplete(payload interface{}) {
 		return
 	}
 
+	log.Printf("转码完成消息: %v, %T", data["task_id"], data["task_id"])
+
 	// 提取信息
-	taskID, ok := data["task_id"].(uint)
+	taskIDFloat, ok := data["task_id"].(float64)
 	if !ok {
 		log.Printf("转码完成消息中缺少task_id字段")
 		return
 	}
+	taskID := uint(taskIDFloat)
 
 	m3u8Path, ok := data["m3u8_path"].(string)
 	if !ok {

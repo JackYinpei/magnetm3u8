@@ -105,9 +105,6 @@ func (wm *WebSocketManager) readMessages() {
 		conn := wm.conn
 		wm.mu.RUnlock()
 
-		// 设置读取超时
-		_ = conn.SetReadDeadline(time.Now().Add(60 * time.Second))
-
 		var message WebSocketMessage
 		err := conn.ReadJSON(&message)
 		if err != nil {
