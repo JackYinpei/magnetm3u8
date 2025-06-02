@@ -442,7 +442,7 @@
                         // 操作按钮
                         let actionButton = '';
                         if (task.status === 'ready') {
-                            actionButton = `<button onclick="window.location.href='/player?taskId=${task.id}'">播放</button>`;
+                            actionButton = `<button onclick="window.location.href='/player?taskId=task_${task.id}'">播放</button>`;
                         }
 
                         row.innerHTML = `
