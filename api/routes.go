@@ -25,7 +25,8 @@ func SetupRoutes(router *gin.Engine) {
 		api.POST("/webrtc/ice", taskController.ICECandidate)  // ICE Candidate
 
 		// 系统状态路由
-		api.GET("/status", taskController.GetConnectionStatus) // 获取服务B连接状态
+		api.GET("/status", taskController.GetConnectionStatus)           // 获取服务B连接状态
+		api.GET("/service-b/status", taskController.GetConnectionStatus) // 获取服务B连接状态（兼容前端路由）
 	}
 
 	// WebSocket路由
