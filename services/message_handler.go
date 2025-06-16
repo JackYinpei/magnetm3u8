@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"strconv"
 
 	"magnetm3u8/models"
 )
@@ -93,9 +92,9 @@ func (h *MessageHandler) handleTorrentInfo(payload interface{}) {
 			continue
 		}
 
-		fileName, _ := fileMap["name"].(string)
-		fileSizeFloat, _ := fileMap["size"].(float64)
-		filePath, _ := fileMap["path"].(string)
+		fileName, _ := fileMap["file_name"].(string)
+		fileSizeFloat, _ := fileMap["file_size"].(float64)
+		filePath, _ := fileMap["file_path"].(string)
 
 		files = append(files, models.TorrentFileInfo{
 			FileName:   fileName,
@@ -134,27 +133,15 @@ func (h *MessageHandler) handleDownloadProgress(payload interface{}) {
 	}
 	taskID := uint(taskIDFloat)
 
-	percentageStr, ok := payloadMap["percentage"].(string)
+	percentageFloat, ok := payloadMap["percentage"].(float64)
 	if !ok {
 		log.Printf("无效的下载百分比")
 		return
 	}
 
-	speedStr, ok := payloadMap["speed"].(string)
+	speedFloat, ok := payloadMap["speed"].(float64)
 	if !ok {
 		log.Printf("无效的下载速度")
-		return
-	}
-
-	percentageFloat, err := strconv.ParseFloat(percentageStr, 64)
-	if err != nil {
-		log.Printf("解析下载百分比失败: %v", err)
-		return
-	}
-
-	speedFloat, err := strconv.ParseFloat(speedStr, 64)
-	if err != nil {
-		log.Printf("解析下载速度失败: %v", err)
 		return
 	}
 
