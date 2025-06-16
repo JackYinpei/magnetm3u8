@@ -790,12 +790,12 @@
 
             // 设置视频源
             player.src({
-                src: `/video/${taskId}/index.m3u8`,
+                src: `/video/task_${taskId}/index.m3u8`,
                 type: "application/x-mpegURL",
                 tracks: [
                     {
                         kind: "subtitles",
-                        src: `/video/${taskId}/1_001.vtt`,
+                        src: `/video/task_${taskId}/1_001.vtt`,
                         srclang: "zh",
                         label: "中文字幕",
                         default: true
@@ -1278,8 +1278,6 @@
     <link href="https://vjs.zencdn.net/7.20.3/video-js.css" rel="stylesheet" />
     <script src="https://vjs.zencdn.net/7.20.3/video.min.js"></script>
     
-    <!-- 引入HLS.js -->
-    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 </body>
 
 </html>
