@@ -12,12 +12,14 @@ import (
 // MessageHandler 处理从服务B接收到的消息
 type MessageHandler struct {
 	torrentService *TorrentService
+	webrtcService  *WebRTCService
 }
 
 // NewMessageHandler 创建新的MessageHandler
 func NewMessageHandler() *MessageHandler {
 	return &MessageHandler{
 		torrentService: NewTorrentService(),
+		webrtcService:  NewWebRTCService(),
 	}
 }
 
@@ -49,6 +51,10 @@ func (h *MessageHandler) HandleMessage(messageData []byte) error {
 		h.handleTranscodeComplete(message.Payload)
 	case MsgTypeError:
 		h.handleError(message.Payload)
+	case MsgTypeWebRTCAnswer:
+		h.handleWebRTCAnswer(message.Payload)
+	case MsgTypeICECandidate:
+		h.handleICECandidate(message.Payload)
 	default:
 		log.Printf("未知消息类型: %s", message.Type)
 	}
@@ -274,6 +280,61 @@ func (h *MessageHandler) handleError(payload interface{}) {
 	log.Printf("任务 %d 出现错误: %s", taskID, errorMsg)
 }
 
+// 处理WebRTC Answer消息
+func (h *MessageHandler) handleWebRTCAnswer(payload interface{}) {
+	payloadMap, ok := payload.(map[string]interface{})
+	if !ok {
+		log.Printf("无效的WebRTC Answer消息格式")
+		return
+	}
+
+	clientID, ok := payloadMap["client_id"].(string)
+	if !ok {
+		log.Printf("WebRTC Answer消息中缺少client_id字段")
+		return
+	}
+
+	sdp, ok := payloadMap["sdp"].(string)
+	if !ok {
+		log.Printf("WebRTC Answer消息中缺少sdp字段")
+		return
+	}
+
+	// 将Answer发送到客户端
+	if err := h.webrtcService.SendAnswer(clientID, sdp); err != nil {
+		log.Printf("发送WebRTC Answer到客户端失败: %v", err)
+	}
+}
+
+// 处理ICE Candidate消息
+func (h *MessageHandler) handleICECandidate(payload interface{}) {
+	payloadMap, ok := payload.(map[string]interface{})
+	if !ok {
+		log.Printf("无效的ICE Candidate消息格式")
+		return
+	}
+
+	clientID, ok := payloadMap["client_id"].(string)
+	if !ok {
+		log.Printf("ICE Candidate消息中缺少client_id字段")
+		return
+	}
+
+	candidate, ok := payloadMap["candidate"].(string)
+	if !ok {
+		log.Printf("ICE Candidate消息中缺少candidate字段")
+		return
+	}
+
+	isClient, ok := payloadMap["is_client"].(bool)
+	if !ok || !isClient {
+		// 这是从服务B发来的Candidate，需要转发给客户端
+		if err := h.webrtcService.SendICECandidateToClient(clientID, candidate); err != nil {
+			log.Printf("发送ICE Candidate到客户端失败: %v", err)
+		}
+	}
+}
+
 // GetHandler 获取消息处理器实例
 func GetHandler() *MessageHandler {
 	if handler == nil {
@@ -302,6 +363,9 @@ func SetupMessageHandling() {
 
 	// 启动WebSocket连接检查器
 	wsManager.StartConnectionChecker()
+
+	// 启动WebRTC会话清理
+	handler.webrtcService.StartSessionCleanup()
 }
 
 var handler *MessageHandler

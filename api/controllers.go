@@ -15,11 +15,13 @@ import (
 
 type TaskController struct {
 	torrentService *services.TorrentService
+	webrtcService  *services.WebRTCService
 }
 
 func NewTaskController() *TaskController {
 	return &TaskController{
 		torrentService: services.NewTorrentService(),
+		webrtcService:  services.NewWebRTCService(),
 	}
 }
 
@@ -316,6 +318,73 @@ func (c *TaskController) RetryTask(ctx *gin.Context) {
 	})
 }
 
+// WebRTC 相关方法
+// WebRTCOffer 处理WebRTC Offer
+func (c *TaskController) WebRTCOffer(ctx *gin.Context) {
+	var request struct {
+		TaskID   uint   `json:"task_id" binding:"required"`
+		ClientID string `json:"client_id" binding:"required"`
+		SDP      string `json:"sdp" binding:"required"`
+	}
+
+	if err := ctx.ShouldBindJSON(&request); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"error": "无效的请求格式",
+		})
+		return
+	}
+
+	// 创建WebRTC会话
+	_, err := c.webrtcService.CreateSession(request.TaskID, request.ClientID)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{
+			"error": "创建WebRTC会话失败",
+		})
+		return
+	}
+
+	// 发送Offer到服务B
+	err = c.webrtcService.SendOffer(request.ClientID, request.TaskID, request.SDP)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{
+			"error": "发送WebRTC Offer失败",
+		})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"success": true,
+	})
+}
+
+// ICECandidate 处理ICE Candidate
+func (c *TaskController) ICECandidate(ctx *gin.Context) {
+	var request struct {
+		ClientID  string `json:"client_id" binding:"required"`
+		Candidate string `json:"candidate" binding:"required"`
+	}
+
+	if err := ctx.ShouldBindJSON(&request); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"error": "无效的请求格式",
+		})
+		return
+	}
+
+	// 发送ICE Candidate到服务B
+	err := c.webrtcService.SendICECandidateToServiceB(request.ClientID, request.Candidate)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{
+			"error": "发送ICE Candidate失败",
+		})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"success": true,
+	})
+}
+
 // 设置WebSocket升级器
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
@@ -364,4 +433,17 @@ func (c *TaskController) HandleServiceBWebSocket(ctx *gin.Context) {
 	// 注册WebSocket连接
 	wsManager.RegisterConnection(conn)
 	log.Printf("服务B已连接，IP: %s", clientIP)
+}
+
+// HandleClientWebSocket 处理客户端的WebSocket连接
+func (c *TaskController) HandleClientWebSocket(ctx *gin.Context) {
+	// 升级HTTP连接为WebSocket连接
+	conn, err := upgrader.Upgrade(ctx.Writer, ctx.Request, nil)
+	if err != nil {
+		log.Printf("升级客户端WebSocket连接失败: %v", err)
+		return
+	}
+
+	// 处理客户端连接
+	HandleClientConnection(conn, ctx.Query("client_id"), c.webrtcService)
 }

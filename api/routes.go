@@ -20,12 +20,17 @@ func SetupRoutes(router *gin.Engine) {
 		api.POST("/tasks/:id/retry", taskController.RetryTask)   // 重试任务
 		api.DELETE("/tasks/:id", taskController.DeleteTask)      // 删除任务
 
+		// WebRTC信令相关API
+		api.POST("/webrtc/offer", taskController.WebRTCOffer) // WebRTC Offer
+		api.POST("/webrtc/ice", taskController.ICECandidate)  // ICE Candidate
+
 		// 系统状态路由
 		api.GET("/status", taskController.GetConnectionStatus) // 获取服务B连接状态
 	}
 
 	// WebSocket路由
 	router.GET("/ws/service-b", taskController.HandleServiceBWebSocket) // 服务B WebSocket连接
+	router.GET("/ws/client", taskController.HandleClientWebSocket)      // 客户端 WebSocket连接
 
 	// 静态文件服务（前端资源）
 	router.Static("/static", "./static")
