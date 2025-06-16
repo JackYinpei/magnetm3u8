@@ -36,7 +36,7 @@ func (h *MessageHandler) HandleMessage(messageData []byte) error {
 		return fmt.Errorf("解析消息失败: %v", err)
 	}
 
-	log.Printf("收到消息类型: %s", message.Type)
+	log.Printf("收到消息类型: %s, %s", message.Type, message.Payload)
 
 	switch message.Type {
 	case MsgTypeDownloadProgress:
@@ -64,6 +64,9 @@ func (h *MessageHandler) HandleMessage(messageData []byte) error {
 
 // 处理Torrent信息消息
 func (h *MessageHandler) handleTorrentInfo(payload interface{}) {
+
+	log.Printf("处理Torrent信息消息: %s\n", payload)
+
 	payloadMap, ok := payload.(map[string]interface{})
 	if !ok {
 		log.Printf("无效的Torrent信息载荷")
