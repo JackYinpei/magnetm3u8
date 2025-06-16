@@ -19,9 +19,9 @@ type Task struct {
 	MagnetURL      string    `json:"magnet_url" gorm:"type:text;not null"`
 	Status         string    `json:"status" gorm:"type:varchar(20);not null"` // waiting, downloading, completed, failed, transcoding, ready
 	Percentage     float64   `json:"percentage" gorm:"default:0"`
-	DownloadSpeed  int64     `json:"download_speed" gorm:"default:0"` // bytes per second
-	TorrentFiles   string    `json:"-" gorm:"type:text"`              // JSON序列化的文件信息
-	M3U8FilePath   string    `json:"m3u8_file_path" gorm:"type:text"` // M3U8文件路径
+	DownloadSpeed  int64     `json:"download_speed" gorm:"default:0"`                        // bytes per second
+	TorrentFiles   string    `json:"-" gorm:"type:text"`                                     // JSON序列化的文件信息
+	M3U8FilePath   string    `json:"m3u8_file_path" gorm:"column:m3_u8_file_path;type:text"` // M3U8文件路径
 	LastUpdateTime time.Time `json:"last_update_time"`
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
