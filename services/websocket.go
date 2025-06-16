@@ -15,6 +15,7 @@ const (
 	MsgTypeDownloadProgress  = "download_progress"  // 下载进度
 	MsgTypeDownloadComplete  = "download_complete"  // 下载完成
 	MsgTypeTranscodeStart    = "transcode_start"    // 开始转码
+	MsgTypeTranscodeProgress = "transcode_progress" // 转码进度
 	MsgTypeTranscodeComplete = "transcode_complete" // 转码完成
 	MsgTypeError             = "error"              // 错误信息
 	MsgTypeWebRTCOffer       = "webrtc_offer"       // WebRTC Offer

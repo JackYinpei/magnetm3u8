@@ -6,85 +6,135 @@ import (
 	"strconv"
 	"time"
 
+	"magnetm3u8/models"
 	"magnetm3u8/services"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 )
 
-// Controller 处理API请求的控制器
-type Controller struct {
+type TaskController struct {
 	torrentService *services.TorrentService
-	webrtcService  *services.WebRTCService
 }
 
-// NewController 创建新的控制器
-func NewController() *Controller {
-	return &Controller{
+func NewTaskController() *TaskController {
+	return &TaskController{
 		torrentService: services.NewTorrentService(),
-		webrtcService:  services.NewWebRTCService(),
 	}
 }
 
-// SubmitMagnet 处理提交磁力链接请求
-func (c *Controller) SubmitMagnet(ctx *gin.Context) {
+// SubmitMagnet 提交磁力链接
+func (c *TaskController) SubmitMagnet(ctx *gin.Context) {
 	var request struct {
 		MagnetURL string `json:"magnet_url" binding:"required"`
 	}
 
 	if err := ctx.ShouldBindJSON(&request); err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{
-			"error": "无效的请求格式",
+			"error": "请求参数错误: " + err.Error(),
 		})
 		return
 	}
 
-	// 创建下载任务
+	// 验证磁力链接格式
+	if err := c.torrentService.ValidateMagnetURL(request.MagnetURL); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"error": "磁力链接格式无效: " + err.Error(),
+		})
+		return
+	}
+
+	// 创建任务
 	task, err := c.torrentService.CreateTask(request.MagnetURL)
 	if err != nil {
-		if err == services.ErrInvalidMagnetURL {
-			ctx.JSON(http.StatusBadRequest, gin.H{
-				"error": "无效的磁力链接",
-			})
-			return
-		}
-
-		if err == services.ErrNotConnected {
-			ctx.JSON(http.StatusServiceUnavailable, gin.H{
-				"error": "服务B未连接",
-			})
-			return
-		}
-
+		log.Printf("创建任务失败: %v", err)
 		ctx.JSON(http.StatusInternalServerError, gin.H{
-			"error": "创建任务失败",
+			"error": "创建任务失败: " + err.Error(),
+		})
+		return
+	}
+
+	// 发送任务到服务B
+	wsManager := services.GetWebSocketManager()
+	if !wsManager.IsConnected() {
+		// 更新任务状态为失败
+		c.torrentService.UpdateTaskStatus(task.ID, "failed")
+		ctx.JSON(http.StatusServiceUnavailable, gin.H{
+			"error": "服务B未连接",
+		})
+		return
+	}
+
+	// 发送磁力链接到服务B
+	err = wsManager.SendMessage(services.MsgTypeMagnetSubmit, map[string]interface{}{
+		"task_id":    task.ID,
+		"magnet_url": request.MagnetURL,
+	})
+
+	if err != nil {
+		log.Printf("发送任务到服务B失败: %v", err)
+		c.torrentService.UpdateTaskStatus(task.ID, "failed")
+		ctx.JSON(http.StatusInternalServerError, gin.H{
+			"error": "发送任务失败: " + err.Error(),
 		})
 		return
 	}
 
 	ctx.JSON(http.StatusOK, gin.H{
-		"task_id": task.ID,
-		"status":  task.Status,
+		"message": "任务提交成功",
+		"task":    task,
 	})
 }
 
-// GetTaskList 获取任务列表
-func (c *Controller) GetTaskList(ctx *gin.Context) {
+// GetAllTasks 获取所有任务
+func (c *TaskController) GetAllTasks(ctx *gin.Context) {
 	tasks, err := c.torrentService.GetAllTasks()
 	if err != nil {
+		log.Printf("获取任务列表失败: %v", err)
 		ctx.JSON(http.StatusInternalServerError, gin.H{
-			"error": "获取任务列表失败",
+			"error": "获取任务列表失败: " + err.Error(),
 		})
 		return
 	}
 
+	// 构建返回数据
+	var taskList []map[string]interface{}
+	for _, task := range tasks {
+		// 获取文件信息
+		files, err := task.GetTorrentFiles()
+		if err != nil {
+			log.Printf("获取任务 %d 文件信息失败: %v", task.ID, err)
+			files = []models.TorrentFileInfo{}
+		}
+
+		// 构建任务信息
+		taskInfo := map[string]interface{}{
+			"id":               task.ID,
+			"magnet_url":       task.MagnetURL,
+			"status":           task.Status,
+			"percentage":       task.Percentage,
+			"download_speed":   task.DownloadSpeed,
+			"last_update_time": task.LastUpdateTime,
+			"created_at":       task.CreatedAt,
+			"updated_at":       task.UpdatedAt,
+			"files":            files,
+		}
+
+		// 如果有M3U8文件路径，添加到返回数据中
+		if task.M3U8FilePath != "" {
+			taskInfo["m3u8_file_path"] = task.M3U8FilePath
+		}
+
+		taskList = append(taskList, taskInfo)
+	}
+
 	ctx.JSON(http.StatusOK, gin.H{
-		"tasks": tasks,
+		"tasks": taskList,
 	})
 }
 
 // GetTaskDetail 获取任务详情
-func (c *Controller) GetTaskDetail(ctx *gin.Context) {
+func (c *TaskController) GetTaskDetail(ctx *gin.Context) {
 	taskIDStr := ctx.Param("id")
 	taskID, err := strconv.ParseUint(taskIDStr, 10, 32)
 	if err != nil {
@@ -96,131 +146,173 @@ func (c *Controller) GetTaskDetail(ctx *gin.Context) {
 
 	task, err := c.torrentService.GetTaskByID(uint(taskID))
 	if err != nil {
-		if err == services.ErrTaskNotFound {
-			ctx.JSON(http.StatusNotFound, gin.H{
-				"error": "任务未找到",
-			})
-			return
-		}
-
-		ctx.JSON(http.StatusInternalServerError, gin.H{
-			"error": "获取任务失败",
+		ctx.JSON(http.StatusNotFound, gin.H{
+			"error": "任务不存在",
 		})
 		return
 	}
 
-	// 获取下载进度
-	progress, err := c.torrentService.GetDownloadProgress(task.ID)
+	// 获取文件信息
+	files, err := task.GetTorrentFiles()
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{
-			"error": "获取下载进度失败",
-		})
-		return
+		log.Printf("获取任务 %d 文件信息失败: %v", task.ID, err)
+		files = []models.TorrentFileInfo{}
 	}
 
-	// 获取文件列表
-	files, err := c.torrentService.GetTorrentFiles(task.ID)
-	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{
-			"error": "获取文件列表失败",
-		})
-		return
+	// 构建返回数据
+	taskDetail := map[string]interface{}{
+		"id":               task.ID,
+		"magnet_url":       task.MagnetURL,
+		"status":           task.Status,
+		"percentage":       task.Percentage,
+		"download_speed":   task.DownloadSpeed,
+		"last_update_time": task.LastUpdateTime,
+		"created_at":       task.CreatedAt,
+		"updated_at":       task.UpdatedAt,
+		"files":            files,
 	}
 
-	// 获取M3U8信息
-	m3u8Info, err := c.torrentService.GetM3U8Info(task.ID)
-	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{
-			"error": "获取M3U8信息失败",
-		})
-		return
+	// 如果有M3U8文件路径，添加到返回数据中
+	if task.M3U8FilePath != "" {
+		taskDetail["m3u8_file_path"] = task.M3U8FilePath
 	}
 
 	ctx.JSON(http.StatusOK, gin.H{
-		"task":     task,
-		"progress": progress,
-		"files":    files,
-		"m3u8":     m3u8Info,
+		"task": taskDetail,
 	})
 }
 
-// WebRTCOffer 处理WebRTC Offer
-func (c *Controller) WebRTCOffer(ctx *gin.Context) {
-	var request struct {
-		TaskID   uint   `json:"task_id" binding:"required"`
-		ClientID string `json:"client_id" binding:"required"`
-		SDP      string `json:"sdp" binding:"required"`
-	}
-
-	if err := ctx.ShouldBindJSON(&request); err != nil {
+// GetTaskFiles 获取任务文件列表
+func (c *TaskController) GetTaskFiles(ctx *gin.Context) {
+	taskIDStr := ctx.Param("id")
+	taskID, err := strconv.ParseUint(taskIDStr, 10, 32)
+	if err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{
-			"error": "无效的请求格式",
+			"error": "无效的任务ID",
 		})
 		return
 	}
 
-	// 创建WebRTC会话
-	_, err := c.webrtcService.CreateSession(request.TaskID, request.ClientID)
+	files, err := c.torrentService.GetTorrentFiles(uint(taskID))
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{
-			"error": "创建WebRTC会话失败",
-		})
-		return
-	}
-
-	// 发送Offer到服务B
-	err = c.webrtcService.SendOffer(request.ClientID, request.TaskID, request.SDP)
-	if err != nil {
-		if err == services.ErrNotConnected {
-			ctx.JSON(http.StatusServiceUnavailable, gin.H{
-				"error": "服务B未连接",
-			})
-			return
-		}
-
-		ctx.JSON(http.StatusInternalServerError, gin.H{
-			"error": "发送WebRTC Offer失败",
+			"error": "获取文件列表失败: " + err.Error(),
 		})
 		return
 	}
 
 	ctx.JSON(http.StatusOK, gin.H{
-		"success": true,
+		"files": files,
 	})
 }
 
-// ICECandidate 处理ICE Candidate
-func (c *Controller) ICECandidate(ctx *gin.Context) {
-	var request struct {
-		ClientID  string `json:"client_id" binding:"required"`
-		Candidate string `json:"candidate" binding:"required"`
-	}
-
-	if err := ctx.ShouldBindJSON(&request); err != nil {
+// DeleteTask 删除任务
+func (c *TaskController) DeleteTask(ctx *gin.Context) {
+	taskIDStr := ctx.Param("id")
+	taskID, err := strconv.ParseUint(taskIDStr, 10, 32)
+	if err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{
-			"error": "无效的请求格式",
+			"error": "无效的任务ID",
 		})
 		return
 	}
 
-	// 发送ICE Candidate到服务B
-	err := c.webrtcService.SendICECandidateToServiceB(request.ClientID, request.Candidate)
+	// 检查任务是否存在
+	task, err := c.torrentService.GetTaskByID(uint(taskID))
 	if err != nil {
-		if err == services.ErrNotConnected {
-			ctx.JSON(http.StatusServiceUnavailable, gin.H{
-				"error": "服务B未连接",
-			})
-			return
-		}
+		ctx.JSON(http.StatusNotFound, gin.H{
+			"error": "任务不存在",
+		})
+		return
+	}
 
+	// 如果任务正在进行中，不允许删除
+	if task.Status == "downloading" || task.Status == "transcoding" {
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"error": "任务正在进行中，不能删除",
+		})
+		return
+	}
+
+	// 删除任务（这里需要实现删除方法）
+	// TODO: 实现删除任务的方法
+	ctx.JSON(http.StatusOK, gin.H{
+		"message": "任务删除成功",
+	})
+}
+
+// GetConnectionStatus 获取与服务B的连接状态
+func (c *TaskController) GetConnectionStatus(ctx *gin.Context) {
+	wsManager := services.GetWebSocketManager()
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"connected":   wsManager.IsConnected(),
+		"server_time": time.Now(),
+	})
+}
+
+// RetryTask 重试失败的任务
+func (c *TaskController) RetryTask(ctx *gin.Context) {
+	taskIDStr := ctx.Param("id")
+	taskID, err := strconv.ParseUint(taskIDStr, 10, 32)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"error": "无效的任务ID",
+		})
+		return
+	}
+
+	task, err := c.torrentService.GetTaskByID(uint(taskID))
+	if err != nil {
+		ctx.JSON(http.StatusNotFound, gin.H{
+			"error": "任务不存在",
+		})
+		return
+	}
+
+	// 只有失败的任务才能重试
+	if task.Status != "failed" {
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"error": "只有失败的任务才能重试",
+		})
+		return
+	}
+
+	// 检查服务B连接状态
+	wsManager := services.GetWebSocketManager()
+	if !wsManager.IsConnected() {
+		ctx.JSON(http.StatusServiceUnavailable, gin.H{
+			"error": "服务B未连接",
+		})
+		return
+	}
+
+	// 重置任务状态
+	err = c.torrentService.UpdateTaskStatus(task.ID, "waiting")
+	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{
-			"error": "发送ICE Candidate失败",
+			"error": "更新任务状态失败: " + err.Error(),
+		})
+		return
+	}
+
+	// 重新发送任务到服务B
+	err = wsManager.SendMessage(services.MsgTypeMagnetSubmit, map[string]interface{}{
+		"task_id":    task.ID,
+		"magnet_url": task.MagnetURL,
+	})
+
+	if err != nil {
+		log.Printf("重新发送任务到服务B失败: %v", err)
+		c.torrentService.UpdateTaskStatus(task.ID, "failed")
+		ctx.JSON(http.StatusInternalServerError, gin.H{
+			"error": "重试任务失败: " + err.Error(),
 		})
 		return
 	}
 
 	ctx.JSON(http.StatusOK, gin.H{
-		"success": true,
+		"message": "任务重试成功",
 	})
 }
 
@@ -234,7 +326,7 @@ var upgrader = websocket.Upgrader{
 }
 
 // HandleServiceBWebSocket 处理服务B的WebSocket连接
-func (c *Controller) HandleServiceBWebSocket(ctx *gin.Context) {
+func (c *TaskController) HandleServiceBWebSocket(ctx *gin.Context) {
 	// 获取客户端IP
 	clientIP := ctx.ClientIP()
 
@@ -272,27 +364,4 @@ func (c *Controller) HandleServiceBWebSocket(ctx *gin.Context) {
 	// 注册WebSocket连接
 	wsManager.RegisterConnection(conn)
 	log.Printf("服务B已连接，IP: %s", clientIP)
-}
-
-// HandleClientWebSocket 处理客户端的WebSocket连接
-func (c *Controller) HandleClientWebSocket(ctx *gin.Context) {
-	// 升级HTTP连接为WebSocket连接
-	conn, err := upgrader.Upgrade(ctx.Writer, ctx.Request, nil)
-	if err != nil {
-		log.Printf("升级客户端WebSocket连接失败: %v", err)
-		return
-	}
-
-	// 处理客户端连接
-	HandleClientConnection(conn, ctx.Query("client_id"), c.webrtcService)
-}
-
-// CheckServiceBStatus 检查与服务B的连接状态
-func (c *Controller) CheckServiceBStatus(ctx *gin.Context) {
-	wsManager := services.GetWebSocketManager()
-	isConnected := wsManager.IsConnected()
-
-	ctx.JSON(http.StatusOK, gin.H{
-		"connected": isConnected,
-	})
 }

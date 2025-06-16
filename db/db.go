@@ -21,10 +21,7 @@ func InitDB() {
 
 	// 自动迁移数据库结构
 	err = DB.AutoMigrate(
-		&models.TorrentTask{},
-		&models.TorrentFile{},
-		&models.DownloadProgress{},
-		&models.M3U8Info{},
+		&models.Task{},
 		&models.WebRTCSession{},
 	)
 	if err != nil {
