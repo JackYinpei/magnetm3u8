@@ -363,7 +363,7 @@
             document.getElementById('submitResult').textContent = '正在提交...';
 
             // 发送请求
-            fetch('/api/magnets', {
+            fetch('/api/tasks', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -375,7 +375,7 @@
                     if (data.error) {
                         document.getElementById('submitResult').textContent = '错误: ' + data.error;
                     } else {
-                        document.getElementById('submitResult').textContent = '提交成功，任务ID: ' + data.task_id;
+                        document.getElementById('submitResult').textContent = '提交成功，任务ID: ' + data.task.id;
                         document.getElementById('magnetUrl').value = '';
 
                         // 加载任务列表
@@ -442,7 +442,7 @@
                         // 操作按钮
                         let actionButton = '';
                         if (task.status === 'ready') {
-                            actionButton = `<button onclick="window.location.href='/player?taskId=task_${task.id}'">播放</button>`;
+                            actionButton = `<button onclick="playTask(${task.id})">播放</button>`;
                         }
 
                         row.innerHTML = `
@@ -479,13 +479,13 @@
                     const progressElement = document.getElementById(`progress-${taskId}`);
                     if (!progressElement) return;
 
-                    if (data.progress) {
-                        const percentage = Math.round(data.progress.percentage);
+                    if (data.task) {
+                        const percentage = Math.round(data.task.percentage || 0);
                         progressElement.innerHTML = `
                             <div class="progress-container">
                                 <div class="progress-bar" style="width:${percentage}%">${percentage}%</div>
                             </div>
-                            <div>速度: ${formatSpeed(data.progress.download_speed)}</div>
+                            <div>速度: ${formatSpeed(data.task.download_speed || 0)}</div>
                         `;
                     }
                 })
@@ -532,7 +532,7 @@
                         <p>状态: <span class="status-badge status-${data.task.status}">${data.task.status}</span></p>
                     `;
 
-                    if (data.task.status === 'ready' && data.m3u8) {
+                    if (data.task.status === 'ready' && data.task.m3u8_file_path) {
                         document.getElementById('playerStatus').textContent = '正在建立WebRTC连接...';
                         // 初始化WebRTC
                         initWebRTC(taskId);
