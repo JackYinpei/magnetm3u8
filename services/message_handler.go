@@ -236,6 +236,8 @@ func (h *MessageHandler) handleTranscodeComplete(payload interface{}) {
 		return
 	}
 
+	log.Printf("转码完成，M3U8路径: %s", m3u8Path)
+
 	// 保存M3U8信息
 	if err := h.torrentService.SaveM3U8Info(taskID, m3u8Path); err != nil {
 		log.Printf("保存M3U8信息失败: %v", err)

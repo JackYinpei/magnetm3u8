@@ -151,7 +151,7 @@ func (s *TorrentService) GetDownloadProgress(taskID uint) (map[string]interface{
 
 // SaveM3U8Info 保存M3U8信息
 func (s *TorrentService) SaveM3U8Info(taskID uint, filePath string) error {
-	result := s.DB.Model(&models.Task{}).Where("id = ?", taskID).Update("m3u8_file_path", filePath)
+	result := s.DB.Model(&models.Task{}).Where("id = ?", taskID).Update("m3_u8_file_path", filePath)
 	if result.Error != nil {
 		return fmt.Errorf("failed to save M3U8 info: %v", result.Error)
 	}
