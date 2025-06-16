@@ -175,6 +175,52 @@
             background-color: #d9534f;
             color: white;
         }
+
+        .file-list {
+            margin-top: 15px;
+        }
+
+        .file-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 12px;
+            margin: 5px 0;
+            background-color: #fff;
+            border: 1px solid #e0e0e0;
+            border-radius: 3px;
+        }
+
+        .file-info {
+            flex: 1;
+        }
+
+        .file-name {
+            font-weight: bold;
+            margin-bottom: 3px;
+        }
+
+        .file-details {
+            font-size: 12px;
+            color: #666;
+        }
+
+        .file-selected {
+            color: #5cb85c;
+            font-size: 12px;
+        }
+
+        .task-info-item {
+            margin: 8px 0;
+            padding: 5px 0;
+            border-bottom: 1px solid #eee;
+        }
+
+        .task-info-label {
+            font-weight: bold;
+            display: inline-block;
+            width: 120px;
+        }
     </style>
 </head>
 
@@ -197,6 +243,13 @@
             </div>
             <button id="submitBtn">提交下载任务</button>
             <div id="submitResult"></div>
+            
+            <!-- 任务详情区域 -->
+            <div id="taskDetail" style="display: none; margin-top: 20px; border: 1px solid #ddd; padding: 15px; border-radius: 5px; background-color: #f9f9f9;">
+                <h3>任务详情</h3>
+                <div id="taskInfo"></div>
+                <div id="filesList"></div>
+            </div>
         </div>
 
         <div class="tab-content" id="tasksTab">
@@ -361,6 +414,8 @@
 
             // 显示正在提交
             document.getElementById('submitResult').textContent = '正在提交...';
+            // 隐藏任务详情
+            document.getElementById('taskDetail').style.display = 'none';
 
             // 发送请求
             fetch('/api/tasks', {
@@ -378,11 +433,11 @@
                         document.getElementById('submitResult').textContent = '提交成功，任务ID: ' + data.task.id;
                         document.getElementById('magnetUrl').value = '';
 
+                        // 显示任务详情
+                        displayTaskDetail(data.task);
+
                         // 加载任务列表
                         loadTasks();
-
-                        // 切换到任务列表标签页
-                        document.querySelector('.tab[data-tab="tasks"]').click();
                     }
                 })
                 .catch(error => {
@@ -700,6 +755,110 @@
                 .catch(error => {
                     console.error('添加ICE候选者失败:', error);
                 });
+        }
+
+        // 显示任务详情
+        function displayTaskDetail(task) {
+            const taskDetail = document.getElementById('taskDetail');
+            const taskInfo = document.getElementById('taskInfo');
+            const filesList = document.getElementById('filesList');
+
+            // 显示任务基本信息
+            const createdAt = new Date(task.created_at).toLocaleString('zh-CN');
+            const updatedAt = new Date(task.updated_at).toLocaleString('zh-CN');
+            
+            let statusText = '';
+            let statusClass = '';
+            switch (task.status) {
+                case 'waiting': statusText = '等待中'; statusClass = 'status-waiting'; break;
+                case 'downloading': statusText = '下载中'; statusClass = 'status-downloading'; break;
+                case 'transcoding': statusText = '转码中'; statusClass = 'status-transcoding'; break;
+                case 'ready': statusText = '已完成'; statusClass = 'status-ready'; break;
+                case 'failed': statusText = '失败'; statusClass = 'status-failed'; break;
+                default: statusText = task.status; statusClass = 'status-waiting';
+            }
+
+            taskInfo.innerHTML = `
+                <div class="task-info-item">
+                    <span class="task-info-label">任务ID:</span>
+                    <span>${task.id}</span>
+                </div>
+                <div class="task-info-item">
+                    <span class="task-info-label">磁力链接:</span>
+                    <span style="word-break: break-all;">${task.magnet_url}</span>
+                </div>
+                <div class="task-info-item">
+                    <span class="task-info-label">状态:</span>
+                    <span class="status-badge ${statusClass}">${statusText}</span>
+                </div>
+                <div class="task-info-item">
+                    <span class="task-info-label">进度:</span>
+                    <span>${task.percentage || 0}%</span>
+                </div>
+                <div class="task-info-item">
+                    <span class="task-info-label">下载速度:</span>
+                    <span>${formatSpeed(task.download_speed || 0)}</span>
+                </div>
+                <div class="task-info-item">
+                    <span class="task-info-label">创建时间:</span>
+                    <span>${createdAt}</span>
+                </div>
+                <div class="task-info-item">
+                    <span class="task-info-label">更新时间:</span>
+                    <span>${updatedAt}</span>
+                </div>
+                ${task.m3u8_file_path ? `
+                <div class="task-info-item">
+                    <span class="task-info-label">M3U8文件:</span>
+                    <span>${task.m3u8_file_path}</span>
+                </div>` : ''}
+                ${task.status === 'ready' ? `
+                <div class="task-info-item">
+                    <span class="task-info-label">操作:</span>
+                    <button onclick="playTask(${task.id})" style="background-color: #337ab7;">播放视频</button>
+                </div>` : ''}
+            `;
+
+            // 显示文件列表
+            if (task.files && task.files.length > 0) {
+                let filesHtml = '<h4>文件列表:</h4><div class="file-list">';
+                
+                task.files.forEach(file => {
+                    filesHtml += `
+                        <div class="file-item">
+                            <div class="file-info">
+                                <div class="file-name">${file.file_name}</div>
+                                <div class="file-details">
+                                    大小: ${formatFileSize(file.file_size)} | 
+                                    路径: ${file.file_path}
+                                </div>
+                            </div>
+                            <div class="file-selected">
+                                ${file.is_selected ? '已选择' : '未选择'}
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                filesHtml += '</div>';
+                filesList.innerHTML = filesHtml;
+            } else {
+                filesList.innerHTML = '<h4>文件列表:</h4><p>暂无文件信息</p>';
+            }
+
+            // 显示任务详情区域
+            taskDetail.style.display = 'block';
+        }
+
+        // 格式化文件大小
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 B';
+            
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
         }
     </script>
 
