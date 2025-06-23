@@ -114,7 +114,7 @@ func (m *Manager) HandleOffer(wsConn interface {
 						return
 					}
 					realPath := utils.ExtractPath(req.Ts)
-					path := "./m3u8/" + realPath
+					path := "./" + realPath
 					file, err := os.Open(path)
 					if err != nil {
 						log.Println("读取失败:", err)

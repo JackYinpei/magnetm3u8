@@ -747,7 +747,7 @@
                     if (data.task.status === 'ready' && data.task.m3u8_file_path) {
                         document.getElementById('playerStatus').textContent = '正在初始化播放器...';
                         // 初始化Video.js播放器
-                        initVideoJSPlayer(data.task.m3u8_file_path);
+                        initVideoJSPlayer(data.task.m3u8_file_path, data.task.srts);
                     } else {
                         document.getElementById('playerStatus').textContent = '视频尚未准备好，无法播放';
                     }
@@ -759,7 +759,7 @@
         }
 
         // 初始化Video.js播放器
-        function initVideoJSPlayer(m3u8_file_path) {
+        function initVideoJSPlayer(m3u8_file_path, srts) {
             // 销毁之前的播放器实例
             if (player) {
                 player.dispose();
@@ -788,19 +788,30 @@
                 }
             });
 
+            // srts 现在是一个序列化的字符串，需要先反序列化为数组
+            let srtsArr = [];
+            if (typeof srts === 'string' && srts.trim().length > 0) {
+                try {
+                    srtsArr = JSON.parse(srts);
+                } catch (e) {
+                    console.error('字幕反序列化失败:', e, srts);
+                    srtsArr = [];
+                }
+            }
+            // 构建字幕 tracks 列表
+            const srtsTracks = srtsArr.map((srtPath, idx) => ({
+                kind: "subtitles",
+                src: `/video/${srtPath}`,
+                srclang: "zh",
+                label: `字幕${idx + 1}`,
+                default: idx === 0
+            }));
+
             // 设置视频源
             player.src({
-                src: m3u8_file_path,
+                src: `/video/${m3u8_file_path}`,
                 type: "application/x-mpegURL",
-                tracks: [
-                    {
-                        kind: "subtitles",
-                        src: `/video/task_${taskId}/1_001.vtt`,
-                        srclang: "zh",
-                        label: "中文字幕",
-                        default: true
-                    }
-                ]
+                tracks: srtsTracks
             });
 
             // 显示播放器

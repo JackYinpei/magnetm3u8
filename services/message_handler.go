@@ -226,8 +226,14 @@ func (h *MessageHandler) handleTranscodeComplete(payload interface{}) {
 		return
 	}
 
-	srts, ok := payloadMap["srts"].([]string)
-	if !ok {
+	var srts []string
+	if srtsRaw, ok := payloadMap["srts"].([]interface{}); ok {
+		for _, s := range srtsRaw {
+			if str, ok := s.(string); ok {
+				srts = append(srts, str)
+			}
+		}
+	} else {
 		log.Println("无效的字幕文件们")
 	}
 
