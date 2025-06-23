@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -298,15 +299,37 @@ func (cm *ConnectionManager) processMagnetTask(taskID uint, magnetURL string) {
 	}
 
 	log.Printf("开始转码文件: %s", filePath)
-	m3u8Path, err := cm.tcManager.Transcode(taskID, filePath)
+	m3u8Path, taskDir, err := cm.tcManager.Transcode(taskID, filePath)
 	if err != nil {
 		log.Printf("转码失败: %v", err)
 		cm.reportError(taskID, fmt.Sprintf("转码失败: %v", err))
 		return
 	}
+	// 提取所有字幕文件（如果有的话）
+
+	// 获取filePath相对于下载目录的路径，然后取其第一个子目录
+	var filePathFatherDir string
+	downloadDir := cm.dlManager.GetDownloadDir()
+
+	relPath, err := filepath.Rel(downloadDir, filePath)
+	if err != nil || relPath == "." || relPath == "" {
+		log.Printf("无法获取相对路径或路径与下载目录相同: %v", err)
+		filePathFatherDir = filepath.Dir(filePath)
+	} else {
+		// 将相对路径按路径分隔符拆分
+		parts := strings.Split(relPath, string(os.PathSeparator))
+		if len(parts) > 0 && parts[0] != "" {
+			// 取第一个子目录
+			filePathFatherDir = filepath.Join(downloadDir, parts[0])
+		} else {
+			filePathFatherDir = downloadDir
+		}
+	}
+
+	srts, _ := cm.tcManager.ConvertSubtitle(taskDir, filePathFatherDir)
 
 	// 6. 转码完成，通知服务A
-	cm.sendTranscodeComplete(taskID, m3u8Path)
+	cm.sendTranscodeComplete(taskID, m3u8Path, srts)
 }
 
 // 发送Torrent信息给服务A
@@ -368,10 +391,11 @@ func (cm *ConnectionManager) sendDownloadComplete(taskID uint) {
 }
 
 // 发送转码完成通知给服务A
-func (cm *ConnectionManager) sendTranscodeComplete(taskID uint, m3u8Path string) {
+func (cm *ConnectionManager) sendTranscodeComplete(taskID uint, m3u8Path string, srts []string) {
 	payload := map[string]interface{}{
 		"task_id":   taskID,
 		"m3u8_path": m3u8Path,
+		"srts":      srts,
 	}
 
 	err := cm.conn.SendMessage("transcode_complete", payload)

@@ -173,9 +173,3 @@ func getSubtitleStreams(inputPath string) ([]subtitleStream, error) {
 
 	return streams, nil
 }
-
-// 检查文件是否存在
-func fileExists(path string) bool {
-	_, err := os.Stat(path)
-	return !os.IsNotExist(err)
-}

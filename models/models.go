@@ -22,6 +22,7 @@ type Task struct {
 	DownloadSpeed  int64     `json:"download_speed" gorm:"default:0"`                        // bytes per second
 	TorrentFiles   string    `json:"-" gorm:"type:text"`                                     // JSON序列化的文件信息
 	M3U8FilePath   string    `json:"m3u8_file_path" gorm:"column:m3_u8_file_path;type:text"` // M3U8文件路径
+	SrtsJSON       string    `json:"-" gorm:"column:srts;type:text"`                         // JSON序列化的字幕文件列表
 	LastUpdateTime time.Time `json:"last_update_time"`
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
@@ -46,6 +47,47 @@ func (t *Task) SetTorrentFiles(files []TorrentFileInfo) error {
 	}
 	t.TorrentFiles = string(data)
 	return nil
+}
+
+// GetSrts 获取反序列化的字幕文件列表
+func (t *Task) GetSrts() ([]string, error) {
+	if t.SrtsJSON == "" {
+		return []string{}, nil
+	}
+
+	var srts []string
+	err := json.Unmarshal([]byte(t.SrtsJSON), &srts)
+	return srts, err
+}
+
+// SetSrts 设置序列化的字幕文件列表
+func (t *Task) SetSrts(srts []string) error {
+	data, err := json.Marshal(srts)
+	if err != nil {
+		return err
+	}
+	t.SrtsJSON = string(data)
+	return nil
+}
+
+// Srts 获取字幕文件列表（用于 JSON 响应）
+func (t *Task) Srts() []string {
+	srts, _ := t.GetSrts()
+	return srts
+}
+
+// MarshalJSON 自定义 JSON 序列化，确保 srts 字段正确输出
+func (t *Task) MarshalJSON() ([]byte, error) {
+	type TaskAlias Task
+	srts, _ := t.GetSrts()
+
+	return json.Marshal(&struct {
+		*TaskAlias
+		Srts []string `json:"srts"`
+	}{
+		TaskAlias: (*TaskAlias)(t),
+		Srts:      srts,
+	})
 }
 
 // WebRTCSession 表示WebRTC会话信息

@@ -1,6 +1,7 @@
 package services
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -150,8 +151,14 @@ func (s *TorrentService) GetDownloadProgress(taskID uint) (map[string]interface{
 }
 
 // SaveM3U8Info 保存M3U8信息
-func (s *TorrentService) SaveM3U8Info(taskID uint, filePath string) error {
-	result := s.DB.Model(&models.Task{}).Where("id = ?", taskID).Update("m3_u8_file_path", filePath)
+func (s *TorrentService) SaveM3U8Info(taskID uint, filePath string, srts []string) error {
+	// 序列化 srts 为 JSON 字符串
+	srtsJSON, err := json.Marshal(srts)
+	if err != nil {
+		return fmt.Errorf("failed to serialize srts: %v", err)
+	}
+
+	result := s.DB.Model(&models.Task{}).Where("id = ?", taskID).Update("m3_u8_file_path", filePath).Update("srts", string(srtsJSON))
 	if result.Error != nil {
 		return fmt.Errorf("failed to save M3U8 info: %v", result.Error)
 	}
@@ -172,7 +179,13 @@ func (s *TorrentService) GetM3U8Info(taskID uint) (map[string]interface{}, error
 		return nil, fmt.Errorf("M3U8 file not found for task")
 	}
 
+	srts, err := task.GetSrts()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get srts: %v", err)
+	}
+
 	return map[string]interface{}{
 		"file_path": task.M3U8FilePath,
+		"srts":      srts,
 	}, nil
 }

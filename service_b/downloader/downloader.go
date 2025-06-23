@@ -61,6 +61,10 @@ func NewManager(downloadDir string) *Manager {
 	}
 }
 
+func (m *Manager) GetDownloadDir() string {
+	return m.downloadDir
+}
+
 // GetTorrentInfo 从磁力链接获取Torrent信息
 func (m *Manager) GetTorrentInfo(magnetURL string) (*TorrentInfo, error) {
 	// 添加Torrent
@@ -173,39 +177,36 @@ func (m *Manager) monitorDownload(taskID uint, t *torrent.Torrent, progressCallb
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
-	for {
-		select {
-		case <-ticker.C:
-			complete := t.BytesCompleted()
-			total := t.Length()
+	for range ticker.C {
+		complete := t.BytesCompleted()
+		total := t.Length()
 
-			// 计算下载速度 (bytes/s)
-			speed := complete - lastBytes
-			lastBytes = complete
+		// 计算下载速度 (bytes/s)
+		speed := complete - lastBytes
+		lastBytes = complete
 
-			// 计算完成百分比
-			var percentage float64
-			if total > 0 {
-				percentage = float64(complete) / float64(total) * 100
-				if percentage > 99.9 {
-					percentage = 100.0
-				}
+		// 计算完成百分比
+		var percentage float64
+		if total > 0 {
+			percentage = float64(complete) / float64(total) * 100
+			if percentage > 99.9 {
+				percentage = 100.0
 			}
+		}
 
-			// 调用进度回调
-			if progressCallback != nil {
-				progressCallback(percentage, speed)
-			}
+		// 调用进度回调
+		if progressCallback != nil {
+			progressCallback(percentage, speed)
+		}
 
-			// 下载完成，当完成字节数等于或接近总字节数时
-			if total > 0 && complete >= total {
-				log.Printf("下载完成: %s", t.Name())
-				// 确保报告100%完成
-				if progressCallback != nil && percentage < 100.0 {
-					progressCallback(100.0, 0)
-				}
-				return
+		// 下载完成，当完成字节数等于或接近总字节数时
+		if total > 0 && complete >= total {
+			log.Printf("下载完成: %s", t.Name())
+			// 确保报告100%完成
+			if progressCallback != nil && percentage < 100.0 {
+				progressCallback(100.0, 0)
 			}
+			return
 		}
 	}
 }
