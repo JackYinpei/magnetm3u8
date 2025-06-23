@@ -328,6 +328,8 @@ func (cm *ConnectionManager) processMagnetTask(taskID uint, magnetURL string) {
 
 	srts, _ := cm.tcManager.ConvertSubtitle(taskDir, filePathFatherDir)
 
+	log.Println("这个项目的字幕文件: ", srts)
+
 	// 6. 转码完成，通知服务A
 	cm.sendTranscodeComplete(taskID, m3u8Path, srts)
 }

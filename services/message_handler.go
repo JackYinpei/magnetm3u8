@@ -231,7 +231,7 @@ func (h *MessageHandler) handleTranscodeComplete(payload interface{}) {
 		log.Println("无效的字幕文件们")
 	}
 
-	log.Printf("转码完成，M3U8路径: %s", m3u8Path)
+	log.Printf("Client A 收到后端转码完成的信息，M3U8路径: %s,以及获取到的字幕文件:%v\n", m3u8Path, srts)
 
 	// 保存M3U8信息
 	if err := h.torrentService.SaveM3U8Info(taskID, m3u8Path, srts); err != nil {

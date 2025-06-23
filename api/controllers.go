@@ -171,6 +171,7 @@ func (c *TaskController) GetTaskDetail(ctx *gin.Context) {
 		"last_update_time": task.LastUpdateTime,
 		"created_at":       task.CreatedAt,
 		"updated_at":       task.UpdatedAt,
+		"srts":             task.Srts,
 		"files":            files,
 	}
 

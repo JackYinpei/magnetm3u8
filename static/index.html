@@ -747,7 +747,7 @@
                     if (data.task.status === 'ready' && data.task.m3u8_file_path) {
                         document.getElementById('playerStatus').textContent = '正在初始化播放器...';
                         // 初始化Video.js播放器
-                        initVideoJSPlayer(taskId);
+                        initVideoJSPlayer(data.task.m3u8_file_path);
                     } else {
                         document.getElementById('playerStatus').textContent = '视频尚未准备好，无法播放';
                     }
@@ -759,7 +759,7 @@
         }
 
         // 初始化Video.js播放器
-        function initVideoJSPlayer(taskId) {
+        function initVideoJSPlayer(m3u8_file_path) {
             // 销毁之前的播放器实例
             if (player) {
                 player.dispose();
@@ -790,7 +790,7 @@
 
             // 设置视频源
             player.src({
-                src: `/video/task_${taskId}/index.m3u8`,
+                src: m3u8_file_path,
                 type: "application/x-mpegURL",
                 tracks: [
                     {
