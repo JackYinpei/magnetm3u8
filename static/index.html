@@ -723,9 +723,11 @@
                         return;
                     }
 
-                    // 获取任务名称
+                    // 获取任务名称，优先从m3u8路径提取
                     let taskName = 'Unknown Task';
-                    if (data.task.files && data.task.files.length > 0) {
+                    if (data.task.m3u8_file_path) {
+                        taskName = extractTitleFromM3u8Path(data.task.m3u8_file_path);
+                    } else if (data.task.files && data.task.files.length > 0) {
                         const videoFile = data.task.files.find(file => 
                             file.file_name.endsWith('.mp4') || 
                             file.file_name.endsWith('.mkv') || 
@@ -739,7 +741,7 @@
                     }
 
                     document.getElementById('taskInfo').innerHTML = `
-                        <h3>${taskName}</h3>
+                        <h2>${taskName}</h2>
                         <p>任务ID: ${data.task.id}</p>
                         <p>状态: <span class="status-badge status-${data.task.status}">${data.task.status}</span></p>
                     `;
@@ -758,6 +760,22 @@
                 });
         }
 
+        // 提取标题从m3u8路径
+        function extractTitleFromM3u8Path(m3u8_file_path) {
+            if (!m3u8_file_path) return '未知视频';
+            
+            // 移除 "m3u8/" 前缀和 "/index.m3u8" 后缀
+            let title = m3u8_file_path;
+            if (title.startsWith('m3u8/')) {
+                title = title.substring(5);
+            }
+            if (title.endsWith('/index.m3u8')) {
+                title = title.substring(0, title.length - 12);
+            }
+            
+            return title || '未知视频';
+        }
+
         // 初始化Video.js播放器
         function initVideoJSPlayer(m3u8_file_path, srts) {
             // 销毁之前的播放器实例
@@ -769,6 +787,14 @@
             // 重新创建video元素
             const playerContainer = document.getElementById('playerContainer');
             playerContainer.innerHTML = '<video id="videoPlayer" class="video-js vjs-default-skin" controls width="800" height="450"></video>';
+
+            // 提取并显示标题
+            const videoTitle = extractTitleFromM3u8Path(m3u8_file_path);
+            document.getElementById('taskInfo').innerHTML = `
+                <h2>${videoTitle}</h2>
+                <p>任务ID: ${currentTaskId}</p>
+                <p>正在初始化播放器...</p>
+            `;
 
             // 创建新的播放器实例
             player = videojs('videoPlayer', {
@@ -788,30 +814,64 @@
                 }
             });
 
+            console.log('收到的字幕数据:', srts);
+
             // srts 现在是一个序列化的字符串，需要先反序列化为数组
             let srtsArr = [];
-            if (typeof srts === 'string' && srts.trim().length > 0) {
-                try {
-                    srtsArr = JSON.parse(srts);
-                } catch (e) {
-                    console.error('字幕反序列化失败:', e, srts);
-                    srtsArr = [];
+            if (srts) {
+                if (typeof srts === 'string' && srts.trim().length > 0) {
+                    try {
+                        srtsArr = JSON.parse(srts);
+                        console.log('解析后的字幕数组:', srtsArr);
+                    } catch (e) {
+                        console.error('字幕反序列化失败:', e, srts);
+                        srtsArr = [];
+                    }
+                } else if (Array.isArray(srts)) {
+                    srtsArr = srts;
+                    console.log('字幕已经是数组:', srtsArr);
                 }
             }
-            // 构建字幕 tracks 列表
-            const srtsTracks = srtsArr.map((srtPath, idx) => ({
-                kind: "subtitles",
-                src: `/video/${srtPath}`,
-                srclang: "zh",
-                label: `字幕${idx + 1}`,
-                default: idx === 0
-            }));
 
-            // 设置视频源
-            player.src({
-                src: `/video/${m3u8_file_path}`,
-                type: "application/x-mpegURL",
-                tracks: srtsTracks
+            // 播放器准备就绪后再添加字幕
+            player.ready(() => {
+                console.log('播放器准备就绪，开始添加字幕...');
+                
+                // 设置视频源
+                player.src({
+                    src: `/video/${m3u8_file_path}`,
+                    type: "application/x-mpegURL"
+                });
+
+                // 添加字幕轨道
+                if (srtsArr && srtsArr.length > 0) {
+                    srtsArr.forEach((srtPath, idx) => {
+                        console.log(`添加字幕轨道 ${idx + 1}:`, srtPath);
+                        player.addRemoteTextTrack({
+                            kind: "subtitles",
+                            src: `/video/${srtPath}`,
+                            srclang: "zh",
+                            label: `字幕${idx + 1}`,
+                            default: idx === 0
+                        }, false);
+                    });
+                    
+                    // 更新任务信息
+                    document.getElementById('taskInfo').innerHTML = `
+                        <h2>${videoTitle}</h2>
+                        <p>任务ID: ${currentTaskId}</p>
+                        <p>状态: 播放器已准备就绪</p>
+                        <p>字幕: 已加载 ${srtsArr.length} 个字幕文件</p>
+                    `;
+                } else {
+                    console.log('没有字幕文件');
+                    document.getElementById('taskInfo').innerHTML = `
+                        <h2>${videoTitle}</h2>
+                        <p>任务ID: ${currentTaskId}</p>
+                        <p>状态: 播放器已准备就绪</p>
+                        <p>字幕: 无字幕文件</p>
+                    `;
+                }
             });
 
             // 显示播放器
@@ -1176,9 +1236,11 @@
             const modalTaskInfo = document.getElementById('modalTaskInfo');
             const modalFilesList = document.getElementById('modalFilesList');
 
-            // 获取任务名称（从主要视频文件名或磁力链接）
+            // 获取任务名称，优先从m3u8路径提取
             let taskName = 'Unknown Task';
-            if (task.files && task.files.length > 0) {
+            if (task.m3u8_file_path) {
+                taskName = extractTitleFromM3u8Path(task.m3u8_file_path);
+            } else if (task.files && task.files.length > 0) {
                 // 查找最大的视频文件作为任务名称
                 const videoFile = task.files.find(file => 
                     file.file_name.endsWith('.mp4') || 
