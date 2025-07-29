@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -327,8 +328,16 @@ func (m *Manager) handleFileRequest(sessionID string, data []byte) {
 		return
 	}
 
+	// 解析URL并提取路径
+	var filePath string
+	if u, err := url.Parse(request.TS); err == nil && u.Scheme != "" && u.Host != "" {
+		filePath = u.Path
+	} else {
+		filePath = request.TS
+	}
+
 	// 处理文件路径，移除前缀
-	filePath := strings.TrimPrefix(request.TS, "/video/")
+	filePath = strings.TrimPrefix(filePath, "/video/")
 	
 	// 解析任务ID和文件名
 	parts := strings.Split(filePath, "/")
@@ -343,7 +352,7 @@ func (m *Manager) handleFileRequest(sessionID string, data []byte) {
 	
 	log.Printf("Parsed request: taskID=%s, fileName=%s", taskID, fileName)
 
-	// 构建实际文件路径 - 先尝试直接匹配taskID目录
+	// 构建实际文件路径 - 先尝试直接匹配taskID目��
 	var actualPath string
 	var found bool
 	
