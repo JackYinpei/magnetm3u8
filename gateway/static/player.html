@@ -1,0 +1,927 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MagnetStream Player - 分布式流媒体播放器</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://vjs.zencdn.net/8.6.1/video-js.css" rel="stylesheet">
+    <style>
+        :root {
+            --netflix-black: #141414;
+            --netflix-dark-gray: #181818;
+            --netflix-gray: #333333;
+            --netflix-light-gray: #757575;
+            --netflix-white: #ffffff;
+            --netflix-red: #e50914;
+            --netflix-red-hover: #f40612;
+            --accent-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --success-green: #46d369;
+            --warning-orange: #ffa726;
+            --error-red: #f44336;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--netflix-black);
+            color: var(--netflix-white);
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        .logo {
+            font-size: 36px;
+            font-weight: 700;
+            background: linear-gradient(45deg, var(--netflix-red), #ff6b6b);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 16px;
+        }
+
+        .subtitle {
+            font-size: 18px;
+            color: var(--netflix-light-gray);
+            font-weight: 300;
+        }
+
+        .player-container {
+            background: var(--netflix-dark-gray);
+            border-radius: 20px;
+            padding: 40px;
+            margin-bottom: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+
+        .video-wrapper {
+            position: relative;
+            max-width: 1200px;
+            margin: 0 auto;
+            border-radius: 16px;
+            overflow: hidden;
+            background: #000;
+        }
+
+        .video-js {
+            width: 100%;
+            height: 600px;
+        }
+
+        .player-controls {
+            display: flex;
+            justify-content: center;
+            gap: 16px;
+            margin-top: 24px;
+        }
+
+        .control-button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .btn-primary {
+            background: var(--netflix-red);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: var(--netflix-red-hover);
+            transform: translateY(-2px);
+        }
+
+        .btn-secondary {
+            background: var(--netflix-gray);
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #404040;
+            transform: translateY(-2px);
+        }
+
+        .connection-status {
+            background: var(--netflix-dark-gray);
+            border-radius: 16px;
+            padding: 24px;
+            margin-bottom: 40px;
+            border: 1px solid var(--netflix-gray);
+        }
+
+        .status-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: var(--error-red);
+            animation: pulse 2s infinite;
+        }
+
+        .status-dot.connected {
+            background: var(--success-green);
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .status-title {
+            font-size: 18px;
+            font-weight: 600;
+        }
+
+        .status-details {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            color: var(--netflix-light-gray);
+        }
+
+        .status-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid var(--netflix-gray);
+        }
+
+        .instructions {
+            background: linear-gradient(135deg, rgba(102,126,234,0.1), rgba(118,75,162,0.1));
+            border-radius: 16px;
+            padding: 32px;
+            border: 1px solid rgba(102,126,234,0.2);
+        }
+
+        .instructions h3 {
+            font-size: 24px;
+            margin-bottom: 20px;
+            color: var(--netflix-white);
+        }
+
+        .instructions ol {
+            list-style: none;
+            counter-reset: step-counter;
+        }
+
+        .instructions li {
+            counter-increment: step-counter;
+            margin-bottom: 16px;
+            padding-left: 40px;
+            position: relative;
+            font-size: 16px;
+            line-height: 1.6;
+        }
+
+        .instructions li::before {
+            content: counter(step-counter);
+            position: absolute;
+            left: 0;
+            top: 0;
+            background: var(--accent-gradient);
+            color: white;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .url-example {
+            background: var(--netflix-gray);
+            padding: 12px 16px;
+            border-radius: 8px;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 14px;
+            margin: 8px 0;
+            border-left: 4px solid var(--netflix-red);
+        }
+
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255,255,255,.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 20px 16px;
+            }
+
+            .player-container {
+                padding: 24px;
+                border-radius: 16px;
+            }
+
+            .video-js {
+                height: 300px;
+            }
+
+            .player-controls {
+                flex-direction: column;
+            }
+
+            .status-details {
+                grid-template-columns: 1fr;
+            }
+
+            .instructions {
+                padding: 24px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1 class="logo">MagnetStream Player</h1>
+            <p class="subtitle">分布式P2P流媒体播放器</p>
+        </div>
+
+        <div class="player-container">
+            <div class="video-wrapper">
+                <video 
+                    id="videoPlayer" 
+                    class="video-js vjs-default-skin" 
+                    controls 
+                    preload="none"
+                    poster="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIwMCIgaGVpZ2h0PSI2MDAiIHZpZXdCb3g9IjAgMCAxMjAwIDYwMCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjEyMDAiIGhlaWdodD0iNjAwIiBmaWxsPSIjMTQxNDE0Ii8+CjxjaXJjbGUgY3g9IjYwMCIgY3k9IjMwMCIgcj0iNDAiIGZpbGw9IiNlNTA5MTQiLz4KPHN2Zz4K"
+                    data-setup="{}"
+                >
+                    <p class="vjs-no-js">
+                        浏览器不支持HTML5视频播放，请 
+                        <a href="https://videojs.com/html5-video-support/" target="_blank">
+                            升级浏览器
+                        </a>
+                    </p>
+                </video>
+            </div>
+            
+            <div class="player-controls">
+                <button class="control-button btn-primary" id="connectBtn">
+                    <span id="connectText">建立P2P连接</span>
+                    <div class="loading" id="connectLoading" style="display: none;"></div>
+                </button>
+                <button class="control-button btn-secondary" id="testBtn" disabled>测试播放</button>
+            </div>
+        </div>
+
+        <div class="connection-status">
+            <div class="status-header">
+                <div class="status-dot" id="statusDot"></div>
+                <h3 class="status-title" id="statusTitle">连接状态: 未连接</h3>
+            </div>
+            <div class="status-details" id="statusDetails">
+                <div class="status-item">
+                    <span>WebSocket状态:</span>
+                    <span id="wsStatus">未连接</span>
+                </div>
+                <div class="status-item">
+                    <span>WebRTC状态:</span>
+                    <span id="rtcStatus">未连接</span>
+                </div>
+                <div class="status-item">
+                    <span>数据通道:</span>
+                    <span id="dataChannelStatus">未打开</span>
+                </div>
+                <div class="status-item">
+                    <span>客户端ID:</span>
+                    <span id="clientId">-</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="instructions">
+            <h3>🎬 使用说明</h3>
+            <ol>
+                <li>确保网关服务器和工作节点正在运行</li>
+                <li>点击"建立P2P连接"按钮连接到流媒体网络</li>
+                <li>连接成功后，可以测试播放功能</li>
+                <li>通过URL参数指定要播放的任务ID:</li>
+            </ol>
+            <div class="url-example">
+                /player?taskId=your-task-id
+            </div>
+        </div>
+    </div>
+
+    <!-- 引入Video.js -->
+    <script src="https://vjs.zencdn.net/8.6.1/video.min.js"></script>
+    
+    <script>
+        // 全局XHR劫持：拦截.m3u8/.ts/.vtt的请求，通过P2P DataChannel获取
+        (function () {
+            const origOpen = XMLHttpRequest.prototype.open;
+            const origSend = XMLHttpRequest.prototype.send;
+            
+            XMLHttpRequest.prototype.open = function (method, url) {
+                this._url = url;
+                return origOpen.apply(this, arguments);
+            };
+            
+            XMLHttpRequest.prototype.send = function (body) {
+                if (this._url && (this._url.endsWith('.m3u8') || this._url.endsWith('.ts') || this._url.endsWith('.vtt'))) {
+                    const xhr = this;
+                    const id = Math.random().toString(36).slice(2);
+                    console.log("拦截请求:", this._url, "ID:", id);
+                    
+                    pendingRequests.set(id, { xhr });
+                    
+                    if (filePathChannel && filePathChannel.readyState === 'open') {
+                        filePathChannel.send(JSON.stringify({ 
+                            type: 'hijackReq', 
+                            ts: xhr._url, 
+                            id 
+                        }));
+                    } else {
+                        console.error("数据通道未打开，无法发送请求");
+                        // fallback到普通HTTP请求
+                        return origSend.apply(this, arguments);
+                    }
+                } else {
+                    return origSend.apply(this, arguments);
+                }
+            };
+        })();
+
+        // 全局变量
+        let socket = null;
+        let peerConnection = null;
+        let filePathChannel = null;
+        let player = null;
+        let clientId = 'client-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+        
+        const tsFileMap = new Map();
+        const pendingRequests = new Map();
+        const SERVER_CHUNK_SIZE = 16 * 1024;
+
+        // 初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeApp();
+        });
+
+        function initializeApp() {
+            updateClientId();
+            setupEventListeners();
+            initializePlayer();
+            
+            // 检查URL参数中的taskId
+            const urlParams = new URLSearchParams(window.location.search);
+            const taskId = urlParams.get('taskId');
+            if (taskId) {
+                console.log("检测到任务ID:", taskId);
+                // 获取任务信息以确定要连接的worker节点
+                fetchTaskInfo(taskId);
+            }
+        }
+
+        async function fetchTaskInfo(taskId) {
+            try {
+                // 从gateway获取所有任务
+                const response = await fetch('/api/tasks');
+                const data = await response.json();
+                
+                if (data.success) {
+                    const tasks = data.data.tasks || [];
+                    const task = tasks.find(t => t.id === taskId);
+                    
+                    if (task) {
+                        console.log("找到任务信息:", task);
+                        // 存储任务信息和worker节点ID
+                        window.currentTask = task;
+                        window.targetWorkerId = task.worker_id;
+                        
+                        // 更新页面显示
+                        document.querySelector('.subtitle').textContent = 
+                            `正在播放: ${task.torrent_name || '未知任务'} (节点: ${task.worker_id})`;
+                    } else {
+                        console.error("未找到任务:", taskId);
+                        updateStatus('error', '任务不存在');
+                    }
+                }
+            } catch (error) {
+                console.error("获取任务信息失败:", error);
+                updateStatus('error', '获取任务信息失败');
+            }
+        }
+
+        function updateClientId() {
+            document.getElementById('clientId').textContent = clientId;
+        }
+
+        function setupEventListeners() {
+            document.getElementById('connectBtn').addEventListener('click', toggleConnection);
+            document.getElementById('testBtn').addEventListener('click', testPlayback);
+        }
+
+        function initializePlayer() {
+            player = videojs('videoPlayer', {
+                techOrder: ['html5'],
+                autoplay: false,
+                preload: 'none',
+                liveui: false,
+                fluid: true,
+                responsive: true,
+                html5: {
+                    vhs: {
+                        overrideNative: true,
+                        enableLowInitialPlaylist: false,
+                        smoothQualityChange: false,
+                        useBandwidthFromLocalStorage: false
+                    }
+                }
+            });
+
+            player.ready(() => {
+                console.log("Video.js播放器初始化完成");
+            });
+        }
+
+        async function toggleConnection() {
+            const btn = document.getElementById('connectBtn');
+            const btnText = document.getElementById('connectText');
+            const loading = document.getElementById('connectLoading');
+
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                // 断开连接
+                disconnect();
+                btn.classList.remove('btn-secondary');
+                btn.classList.add('btn-primary');
+                btnText.textContent = '建立P2P连接';
+            } else {
+                // 建立连接
+                btn.disabled = true;
+                btnText.style.display = 'none';
+                loading.style.display = 'inline-block';
+
+                try {
+                    await connectToGateway();
+                    btn.classList.remove('btn-primary');
+                    btn.classList.add('btn-secondary');
+                    btnText.textContent = '断开连接';
+                } catch (error) {
+                    console.error("连接失败:", error);
+                    updateStatus('error', '连接失败: ' + error.message);
+                } finally {
+                    btn.disabled = false;
+                    btnText.style.display = 'inline';
+                    loading.style.display = 'none';
+                }
+            }
+        }
+
+        async function connectToGateway() {
+            return new Promise((resolve, reject) => {
+                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const wsUrl = `${protocol}//${window.location.host}/ws/clients?client_id=${clientId}`;
+                
+                console.log("连接到WebSocket:", wsUrl);
+                
+                socket = new WebSocket(wsUrl);
+                
+                socket.onopen = () => {
+                    console.log("WebSocket连接已建立");
+                    updateWebSocketStatus('已连接');
+                    createPeerConnection();
+                    resolve();
+                };
+
+                socket.onmessage = (event) => {
+                    try {
+                        const message = JSON.parse(event.data);
+                        handleWebSocketMessage(message);
+                    } catch (error) {
+                        console.error("解析WebSocket消息失败:", error);
+                    }
+                };
+
+                socket.onclose = () => {
+                    console.log("WebSocket连接已关闭");
+                    updateWebSocketStatus('已断开');
+                    updateStatus('error', 'WebSocket连接已断开');
+                    
+                    // 自动重连
+                    setTimeout(() => {
+                        if (socket && socket.readyState === WebSocket.CLOSED) {
+                            console.log("尝试重新连接...");
+                            connectToGateway().catch(console.error);
+                        }
+                    }, 5000);
+                };
+
+                socket.onerror = (error) => {
+                    console.error("WebSocket错误:", error);
+                    updateWebSocketStatus('连接错误');
+                    reject(new Error('WebSocket连接失败'));
+                };
+
+                // 设置连接超时
+                setTimeout(() => {
+                    if (socket.readyState === WebSocket.CONNECTING) {
+                        socket.close();
+                        reject(new Error('连接超时'));
+                    }
+                }, 10000);
+            });
+        }
+
+        function createPeerConnection() {
+            const config = {
+                iceServers: [
+                    // Google STUN服务器
+                    { urls: 'stun:stun.l.google.com:19302' },
+                    { urls: 'stun:stun1.l.google.com:19302' },
+                    { urls: 'stun:stun2.l.google.com:19302' },
+                    { urls: 'stun:stun3.l.google.com:19302' },
+                    { urls: 'stun:stun4.l.google.com:19302' },
+                    
+                    // 其他公共STUN服务器
+                    { urls: 'stun:stun.cloudflare.com:3478' },
+                    { urls: 'stun:stun.nextcloud.com:443' }
+                ],
+                iceCandidatePoolSize: 10  // 增加候选者池大小
+            };
+
+            console.log("创建PeerConnection，配置:", config);
+            peerConnection = new RTCPeerConnection(config);
+
+            // 创建数据通道
+            filePathChannel = peerConnection.createDataChannel("filePathChannel", {
+                ordered: true
+            });
+
+            setupDataChannel();
+            setupPeerConnectionEvents();
+            createOffer();
+        }
+
+        function setupDataChannel() {
+            filePathChannel.onopen = () => {
+                console.log("数据通道已打开");
+                updateDataChannelStatus('已打开');
+                updateStatus('success', 'P2P连接已建立');
+                document.getElementById('testBtn').disabled = false;
+            };
+
+            filePathChannel.onclose = () => {
+                console.log("数据通道已关闭");
+                updateDataChannelStatus('已关闭');
+                document.getElementById('testBtn').disabled = true;
+            };
+
+            filePathChannel.onerror = (error) => {
+                console.error("数据通道错误:", error);
+                updateDataChannelStatus('错误');
+            };
+
+            filePathChannel.onmessage = (event) => {
+                handleDataChannelMessage(event);
+            };
+        }
+
+        function setupPeerConnectionEvents() {
+            peerConnection.onicecandidate = (event) => {
+                if (event.candidate && socket && socket.readyState === WebSocket.OPEN) {
+                    const message = {
+                        type: "ice_candidate",
+                        payload: {
+                            candidate: event.candidate.candidate,
+                            session_id: clientId,
+                            is_client: true
+                        }
+                    };
+                    socket.send(JSON.stringify(message));
+                    console.log("发送ICE候选者:", event.candidate.candidate);
+                } else if (!event.candidate) {
+                    console.log("ICE候选者收集完成");
+                }
+            };
+
+            peerConnection.onconnectionstatechange = () => {
+                const state = peerConnection.connectionState;
+                console.log("WebRTC连接状态:", state);
+                updateRTCStatus(state);
+                
+                if (state === 'connected') {
+                    updateStatus('success', 'WebRTC连接已建立');
+                } else if (state === 'failed') {
+                    updateStatus('error', 'WebRTC连接失败 - 可能的网络问题');
+                    console.error("WebRTC连接失败，可能原因：");
+                    console.error("1. 网络环境限制（如手机热点的NAT）");
+                    console.error("2. STUN服务器无法访问");
+                    console.error("3. 防火墙阻止UDP流量");
+                    console.error("建议：尝试在更稳定的网络环境下测试");
+                } else if (state === 'disconnected') {
+                    updateStatus('error', 'WebRTC连接已断开');
+                }
+            };
+
+            peerConnection.oniceconnectionstatechange = () => {
+                const iceState = peerConnection.iceConnectionState;
+                console.log("ICE连接状态:", iceState);
+                
+                if (iceState === 'failed') {
+                    console.error("ICE连接失败 - 网络穿透问题");
+                    console.error("当前网络可能不支持P2P连接");
+                    console.error("手机热点通常有严格的NAT限制");
+                }
+            };
+
+            peerConnection.onicegatheringstatechange = () => {
+                console.log("ICE收集状态:", peerConnection.iceGatheringState);
+            };
+        }
+
+        async function createOffer() {
+            if (!window.targetWorkerId) {
+                console.error("未指定目标worker节点");
+                updateStatus('error', '未找到目标worker节点');
+                return;
+            }
+
+            try {
+                const offer = await peerConnection.createOffer();
+                await peerConnection.setLocalDescription(offer);
+                
+                const message = {
+                    type: "webrtc_offer",
+                    payload: {
+                        sdp: offer.sdp,
+                        client_id: clientId,
+                        session_id: clientId,
+                        worker_id: window.targetWorkerId  // 指定目标worker节点
+                    }
+                };
+
+                if (socket && socket.readyState === WebSocket.OPEN) {
+                    socket.send(JSON.stringify(message));
+                    console.log("发送WebRTC Offer到worker:", window.targetWorkerId);
+                }
+            } catch (error) {
+                console.error("创建Offer失败:", error);
+                updateStatus('error', '创建WebRTC连接失败');
+            }
+        }
+
+        function handleWebSocketMessage(message) {
+            console.log("收到WebSocket消息:", message);
+
+            switch (message.type) {
+                case 'webrtc_answer':
+                    console.log("收到WebRTC Answer:", message.payload);
+                    handleWebRTCAnswer(message.payload);
+                    break;
+                case 'ice_candidate':
+                    console.log("收到ICE候选者:", message.payload);
+                    handleICECandidate(message.payload);
+                    break;
+                default:
+                    console.log("未处理的消息类型:", message.type);
+            }
+        }
+
+        async function handleWebRTCAnswer(payload) {
+            if (!peerConnection || !payload.sdp) return;
+
+            try {
+                const answer = new RTCSessionDescription({
+                    type: 'answer',
+                    sdp: payload.sdp
+                });
+
+                await peerConnection.setRemoteDescription(answer);
+                console.log("设置远程描述成功");
+            } catch (error) {
+                console.error("设置远程描述失败:", error);
+            }
+        }
+
+        async function handleICECandidate(payload) {
+            if (!peerConnection || !payload.candidate) return;
+
+            try {
+                const candidate = new RTCIceCandidate({
+                    candidate: payload.candidate,
+                    sdpMid: '0',
+                    sdpMLineIndex: 0
+                });
+
+                await peerConnection.addIceCandidate(candidate);
+                console.log("添加ICE候选者成功");
+            } catch (error) {
+                console.error("添加ICE候选者失败:", error);
+            }
+        }
+
+        function handleDataChannelMessage(event) {
+            try {
+                const msg = JSON.parse(new TextDecoder().decode(event.data));
+                
+                if (msg.type === 'hijackRespText' && pendingRequests.has(msg.id)) {
+                    handleTextResponse(msg);
+                } else if (msg.type === 'hijackRespData' && pendingRequests.has(msg.id)) {
+                    handleBinaryResponse(msg);
+                }
+            } catch (error) {
+                console.error("处理数据通道消息失败:", error);
+            }
+        }
+
+        function handleTextResponse(msg) {
+            const totalSlices = msg.totalSliceNum;
+            const totalLength = msg.totalLength;
+            let entry = tsFileMap.get(msg.id);
+            
+            if (!entry) {
+                entry = { buffers: new Array(totalSlices), totalLength, isText: true };
+                tsFileMap.set(msg.id, entry);
+            }
+            
+            // 解码base64数据
+            const binaryString = atob(msg.payload);
+            const buffer = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) {
+                buffer[i] = binaryString.charCodeAt(i);
+            }
+            entry.buffers[msg.sliceNum] = buffer;
+            
+            // 检查是否收到所有分片
+            if (msg.sliceNum === totalSlices - 1) {
+                // 组装完整文件
+                const combined = new Uint8Array(totalLength);
+                for (let i = 0; i < totalSlices; i++) {
+                    const chunk = entry.buffers[i];
+                    combined.set(chunk, i * SERVER_CHUNK_SIZE);
+                }
+                
+                const text = new TextDecoder().decode(combined);
+                
+                tsFileMap.delete(msg.id);
+                const { xhr } = pendingRequests.get(msg.id);
+                pendingRequests.delete(msg.id);
+                
+                // 设置XHR响应
+                Object.defineProperty(xhr, 'responseType', { value: '' });
+                Object.defineProperty(xhr, 'responseText', { value: text });
+                Object.defineProperty(xhr, 'status', { value: 200 });
+                Object.defineProperty(xhr, 'readyState', { value: 4 });
+                
+                xhr.onreadystatechange && xhr.onreadystatechange();
+                xhr.onload && xhr.onload();
+            }
+        }
+
+        function handleBinaryResponse(msg) {
+            const totalSlices = msg.totalSliceNum;
+            const totalLength = msg.totalLength;
+            let entry = tsFileMap.get(msg.id);
+            
+            if (!entry) {
+                entry = { buffers: new Array(totalSlices), totalLength };
+                tsFileMap.set(msg.id, entry);
+            }
+            
+            // 解码base64数据
+            const binaryString = atob(msg.payload);
+            const buffer = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) {
+                buffer[i] = binaryString.charCodeAt(i);
+            }
+            entry.buffers[msg.sliceNum] = buffer;
+            
+            // 检查是否收到所有分片
+            if (msg.sliceNum === totalSlices - 1) {
+                // 组装完整文件
+                const combined = new Uint8Array(totalLength);
+                for (let i = 0; i < totalSlices; i++) {
+                    const chunk = entry.buffers[i];
+                    combined.set(chunk, i * SERVER_CHUNK_SIZE);
+                }
+                
+                tsFileMap.delete(msg.id);
+                const { xhr } = pendingRequests.get(msg.id);
+                pendingRequests.delete(msg.id);
+                
+                // 设置XHR响应
+                Object.defineProperty(xhr, 'responseType', { value: 'arraybuffer' });
+                Object.defineProperty(xhr, 'response', { value: combined.buffer });
+                Object.defineProperty(xhr, 'status', { value: 200 });
+                Object.defineProperty(xhr, 'readyState', { value: 4 });
+                
+                xhr.onreadystatechange && xhr.onreadystatechange();
+                xhr.onload && xhr.onload();
+            }
+        }
+
+        function testPlayback() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const taskId = urlParams.get('taskId') || 'demo';
+            
+            const testUrl = `/video/${taskId}/index.m3u8`;
+            console.log("测试播放:", testUrl);
+            
+            player.src({
+                src: testUrl,
+                type: "application/x-mpegURL"
+            });
+            
+            player.ready(() => {
+                player.play().catch(error => {
+                    console.error("播放失败:", error);
+                });
+            });
+        }
+
+        function disconnect() {
+            if (filePathChannel) {
+                filePathChannel.close();
+                filePathChannel = null;
+            }
+            
+            if (peerConnection) {
+                peerConnection.close();
+                peerConnection = null;
+            }
+            
+            if (socket) {
+                socket.close();
+                socket = null;
+            }
+            
+            updateStatus('error', '已断开连接');
+            updateWebSocketStatus('未连接');
+            updateRTCStatus('disconnected');
+            updateDataChannelStatus('未打开');
+            
+            document.getElementById('testBtn').disabled = true;
+        }
+
+        // 状态更新函数
+        function updateStatus(type, message) {
+            const dot = document.getElementById('statusDot');
+            const title = document.getElementById('statusTitle');
+            
+            dot.className = 'status-dot' + (type === 'success' ? ' connected' : '');
+            title.textContent = `连接状态: ${message}`;
+        }
+
+        function updateWebSocketStatus(status) {
+            document.getElementById('wsStatus').textContent = status;
+        }
+
+        function updateRTCStatus(status) {
+            const statusMap = {
+                'new': '新建',
+                'connecting': '连接中',
+                'connected': '已连接',
+                'disconnected': '已断开',
+                'failed': '失败',
+                'closed': '已关闭'
+            };
+            document.getElementById('rtcStatus').textContent = statusMap[status] || status;
+        }
+
+        function updateDataChannelStatus(status) {
+            document.getElementById('dataChannelStatus').textContent = status;
+        }
+    </script>
+</body>
+</html>
