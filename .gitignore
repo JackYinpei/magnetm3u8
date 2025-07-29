@@ -6,3 +6,4 @@
 /magnetm3u8
 .env
 /worker/data
+/worker/worker*
