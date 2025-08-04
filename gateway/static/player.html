@@ -300,7 +300,7 @@
                     <span id="connectText">建立P2P连接</span>
                     <div class="loading" id="connectLoading" style="display: none;"></div>
                 </button>
-                <button class="control-button btn-secondary" id="testBtn" disabled>测试播放</button>
+                <button class="control-button btn-secondary" id="testBtn" disabled style="display: none;">测试播放</button>
             </div>
         </div>
 
@@ -333,8 +333,8 @@
             <h3>🎬 使用说明</h3>
             <ol>
                 <li>确保网关服务器和工作节点正在运行</li>
-                <li>点击"建立P2P连接"按钮连接到流媒体网络</li>
-                <li>连接成功后，可以测试播放功能</li>
+                <li>系统将自动建立P2P连接到流媒体网络</li>
+                <li>连接成功后，直接点击播放器的播放按钮即可播放</li>
                 <li>通过URL参数指定要播放的任务ID:</li>
             </ol>
             <div class="url-example">
@@ -409,7 +409,13 @@
             if (taskId) {
                 console.log("检测到任务ID:", taskId);
                 // 获取任务信息以确定要连接的worker节点
-                fetchTaskInfo(taskId);
+                fetchTaskInfo(taskId).then(() => {
+                    // 任务信息获取完成后自动建立P2P连接
+                    autoConnect();
+                });
+            } else {
+                // 即使没有taskId也尝试自动连接
+                setTimeout(() => autoConnect(), 1000);
             }
         }
 
@@ -432,6 +438,16 @@
                         // 更新页面显示
                         document.querySelector('.subtitle').textContent = 
                             `正在播放: ${task.torrent_name || '未知任务'} (节点: ${task.worker_id})`;
+                        
+                        // 自动设置播放源
+                        if (task.status === 'ready' && task.m3u8_path) {
+                            const playUrl = `/video/${taskId}/index.m3u8`;
+                            player.src({
+                                src: playUrl,
+                                type: "application/x-mpegURL"
+                            });
+                            console.log("自动设置播放源:", playUrl);
+                        }
                     } else {
                         console.error("未找到任务:", taskId);
                         updateStatus('error', '任务不存在');
@@ -450,6 +466,42 @@
         function setupEventListeners() {
             document.getElementById('connectBtn').addEventListener('click', toggleConnection);
             document.getElementById('testBtn').addEventListener('click', testPlayback);
+        }
+        
+        // 自动连接函数
+        async function autoConnect() {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                console.log("P2P连接已存在，跳过自动连接");
+                return;
+            }
+            
+            console.log("开始自动建立P2P连接...");
+            const btn = document.getElementById('connectBtn');
+            const btnText = document.getElementById('connectText');
+            const loading = document.getElementById('connectLoading');
+            
+            // 更新UI显示正在连接
+            btn.disabled = true;
+            btnText.style.display = 'none';
+            loading.style.display = 'inline-block';
+            
+            try {
+                await connectToGateway();
+                btn.classList.remove('btn-primary');
+                btn.classList.add('btn-secondary');
+                btnText.textContent = '断开连接';
+                console.log("P2P连接自动建立成功");
+            } catch (error) {
+                console.error("自动连接失败:", error);
+                updateStatus('error', '自动连接失败: ' + error.message);
+                btn.classList.remove('btn-secondary');
+                btn.classList.add('btn-primary');
+                btnText.textContent = '建立P2P连接';
+            } finally {
+                btn.disabled = false;
+                btnText.style.display = 'inline';
+                loading.style.display = 'none';
+            }
         }
 
         function initializePlayer() {
@@ -472,6 +524,41 @@
 
             player.ready(() => {
                 console.log("Video.js播放器初始化完成");
+                
+                // 监听播放器的播放事件
+                player.on('play', () => {
+                    console.log("播放器试图播放");
+                    
+                    // 检查P2P连接是否建立
+                    if (!filePathChannel || filePathChannel.readyState !== 'open') {
+                        console.warn("P2P连接未建立，停止播放");
+                        player.pause();
+                        updateStatus('error', '请先建立P2P连接');
+                        return;
+                    }
+                    
+                    // 检查是否有播放源
+                    if (!player.src()) {
+                        const urlParams = new URLSearchParams(window.location.search);
+                        const taskId = urlParams.get('taskId');
+                        if (taskId) {
+                            const playUrl = `/video/${taskId}/index.m3u8`;
+                            console.log("自动设置播放源:", playUrl);
+                            player.src({
+                                src: playUrl,
+                                type: "application/x-mpegURL"
+                            });
+                        } else {
+                            console.warn("未找到taskId，无法播放");
+                            player.pause();
+                            updateStatus('error', '请指定要播放的任务ID');
+                        }
+                    }
+                });
+                
+                player.on('error', (error) => {
+                    console.error("播放器错误:", error);
+                });
             });
         }
 
@@ -599,6 +686,13 @@
                 updateDataChannelStatus('已打开');
                 updateStatus('success', 'P2P连接已建立');
                 document.getElementById('testBtn').disabled = false;
+                
+                // P2P连接建立完成后，如果播放器已经有源，则可以直接播放
+                const urlParams = new URLSearchParams(window.location.search);
+                const taskId = urlParams.get('taskId');
+                if (taskId && player.src()) {
+                    console.log("P2P连接已建立，播放器已准备就绪");
+                }
             };
 
             filePathChannel.onclose = () => {
