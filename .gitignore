@@ -7,3 +7,4 @@
 .env
 /worker/data
 /worker/worker*
+/gateway/gateway*
