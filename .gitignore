@@ -8,3 +8,4 @@
 /worker/data
 /worker/worker*
 /gateway/gateway*
+*.log
