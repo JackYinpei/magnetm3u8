@@ -295,6 +295,9 @@ func (m *Manager) downloadTask(task *models.Task) {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
+	var lastDownloaded int64
+	lastTime := time.Now()
+
 	for {
 		select {
 		case <-ticker.C:
@@ -316,9 +319,15 @@ func (m *Manager) downloadTask(task *models.Task) {
 				progress = int((downloaded * 100) / task.Size)
 			}
 			
-			// 计算速度（简单实现）
-			stats := t.Stats()
-			speed := int64(stats.BytesReadData.Int64())
+			// 计算速度
+			currentTime := time.Now()
+			elapsedTime := currentTime.Sub(lastTime).Seconds()
+			var speed int64
+			if elapsedTime > 0 {
+				speed = (downloaded - lastDownloaded) / int64(elapsedTime)
+			}
+			lastDownloaded = downloaded
+			lastTime = currentTime
 
 			// 更新数据库
 			m.taskRepo.UpdateProgress(task.TaskID, progress, speed, downloaded)
@@ -372,9 +381,15 @@ func (m *Manager) restoreActiveTasks() error {
 // statusMonitor 状态监控
 func (m *Manager) statusMonitor() {
 	for task := range m.statusChan {
-		// 记录状态变化
-		log.Printf("Task %s status: %s, progress: %d%%", task.TaskID, task.Status, task.Progress)
-		
+		if task.Status == string(StatusDownloading) {
+			// 使用 \r 实现单行刷新
+			fmt.Printf("\rTask %s status: %s, progress: %d%%, speed: %d KB/s", task.TaskID, task.Status, task.Progress, task.Speed/1024)
+		} else {
+			// 对于其他状态，换行输出以保留日志
+			fmt.Println() // 换行以避免覆盖之前的进度行
+			log.Printf("Task %s status: %s, progress: %d%%", task.TaskID, task.Status, task.Progress)
+		}
+
 		// 如果有外部的状态处理器，调用它
 		if m.externalStatusHandler != nil {
 			m.externalStatusHandler(task)

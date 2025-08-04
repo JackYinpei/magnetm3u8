@@ -370,7 +370,7 @@ func DefaultHLSConfig() HLSConfig {
 	}
 }
 
-// ConvertToHLS 将视频文件转换为HLS格式，不进行转码，只做切片
+// ConvertToHLS 将视频文件转换为HLS格式，根据需要进行转码
 func ConvertToHLS(inputPath string, outputDir string, config HLSConfig) (string, error) {
 	// 检查输入文件是否存在
 	if _, err := os.Stat(inputPath); os.IsNotExist(err) {
@@ -400,17 +400,42 @@ func ConvertToHLS(inputPath string, outputDir string, config HLSConfig) (string,
 		}
 	}
 
-	// 构建基本的FFmpeg命令，使用-c copy只做切片不做转码
+	// 检查视频编码
+	codec, err := getVideoCodec(inputPath)
+	if err != nil {
+		log.Printf("警告: 无法检测视频编码: %v。将默认使用-c copy。", err)
+		codec = "h264" // 出现错误时，默认其兼容，避免不必要的转码
+	}
+	log.Printf("检测到视频编码: %s", codec)
+
+	// 构建FFmpeg命令
 	args := []string{
 		"-i", inputPath,
-		"-c", "copy", // 只拷贝流，不做转码
+	}
+
+	// 根据视频编码决定是否需要转码
+	if codec == "h264" {
+		log.Println("视频为H.264编码，直接复制流")
+		args = append(args, "-c", "copy")
+	} else {
+		log.Printf("视频为 %s 编码，转码为H.264", codec)
+		args = append(args, "-c:v", "libx264", "-c:a", "copy")
+	}
+
+	// 如果提取了字幕，HLS切片时需禁用内置字幕流
+	if config.ExtractSubtitles {
+		args = append(args, "-sn")
+	}
+
+	// 添加HLS相关的参数
+	args = append(args,
 		"-start_number", "0",
 		"-hls_time", fmt.Sprintf("%d", config.SegmentDuration),
-		"-hls_list_size", "0", // 所有片段保持在播放列表中
+		"-hls_list_size", "0",
 		"-hls_playlist_type", config.PlaylistType,
 		"-f", "hls",
 		outputPath,
-	}
+	)
 
 	// 执行FFmpeg命令
 	cmd := exec.Command("ffmpeg", args...)
@@ -427,6 +452,30 @@ func ConvertToHLS(inputPath string, outputDir string, config HLSConfig) (string,
 	log.Printf("处理完成: %s", outputPath)
 	return outputPath, nil
 }
+
+// getVideoCodec 使用ffprobe获取视频文件的视频编码格式
+func getVideoCodec(inputPath string) (string, error) {
+	cmd := exec.Command("ffprobe",
+		"-v", "error",
+		"-select_streams", "v:0",
+		"-show_entries", "stream=codec_name",
+		"-of", "default=noprint_wrappers=1:nokey=1",
+		inputPath,
+	)
+
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("ffprobe执行失败: %w, output: %s", err, string(output))
+	}
+
+	codec := strings.TrimSpace(string(output))
+	if codec == "" {
+		return "", fmt.Errorf("无法从ffprobe输出中解析编码")
+	}
+
+	return codec, nil
+}
+
 
 // 提取视频中的字幕
 func extractSubtitles(inputPath string, outputDir string) error {
