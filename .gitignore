@@ -7,5 +7,6 @@
 .env
 /worker/data
 /worker/worker*
+/worker/config/worker.json
 /gateway/gateway*
 *.log

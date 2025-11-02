@@ -12,11 +12,11 @@ import (
 
 // Config 工作节点配置
 type Config struct {
-	Node     NodeConfig     `json:"node"`
-	Gateway  GatewayConfig  `json:"gateway"`
-	Storage  StorageConfig  `json:"storage"`
-	Limits   LimitsConfig   `json:"limits"`
-	Network  NetworkConfig  `json:"network"`
+	Node    NodeConfig    `json:"node"`
+	Gateway GatewayConfig `json:"gateway"`
+	Storage StorageConfig `json:"storage"`
+	Limits  LimitsConfig  `json:"limits"`
+	Network NetworkConfig `json:"network"`
 }
 
 // NodeConfig 节点配置
@@ -50,10 +50,10 @@ type LimitsConfig struct {
 
 // NetworkConfig 网络配置
 type NetworkConfig struct {
-	ListenPort    int      `json:"listen_port"`
-	STUNServers   []string `json:"stun_servers"`
-	TURNServers   []string `json:"turn_servers"`
-	MaxBandwidth  int      `json:"max_bandwidth_kbps"`
+	ListenPort   int      `json:"listen_port"`
+	STUNServers  []string `json:"stun_servers"`
+	TURNServers  []string `json:"turn_servers"`
+	MaxBandwidth int      `json:"max_bandwidth_kbps"`
 }
 
 // Load 加载配置文件
@@ -128,11 +128,12 @@ func Default() *Config {
 		Network: NetworkConfig{
 			ListenPort: 0, // 自动分配
 			STUNServers: []string{
+				"stun.cloudflare.com:3478",
 				"stun:stun.l.google.com:19302",
 				"stun:stun1.l.google.com:19302",
 			},
-			TURNServers:   []string{},
-			MaxBandwidth:  5000, // 5 Mbps
+			TURNServers:  []string{},
+			MaxBandwidth: 5000, // 5 Mbps
 		},
 	}
 }
@@ -143,7 +144,7 @@ func generateNodeID() string {
 	if hostname == "" {
 		hostname = "unknown"
 	}
-	
+
 	return hostname + "-" + uuid.New().String()[:8]
 }
 
@@ -168,10 +169,10 @@ func (c *Config) GetStoragePaths() error {
 // GetSystemInfo 获取系统信息
 func (c *Config) GetSystemInfo() map[string]interface{} {
 	return map[string]interface{}{
-		"os":           runtime.GOOS,
-		"arch":         runtime.GOARCH,
-		"cpu_count":    runtime.NumCPU(),
-		"go_version":   runtime.Version(),
-		"hostname":     c.Node.Name,
+		"os":         runtime.GOOS,
+		"arch":       runtime.GOARCH,
+		"cpu_count":  runtime.NumCPU(),
+		"go_version": runtime.Version(),
+		"hostname":   c.Node.Name,
 	}
 }
