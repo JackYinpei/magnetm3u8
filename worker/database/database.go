@@ -6,11 +6,12 @@ import (
 	"path/filepath"
 	"time"
 
+	"worker/domain"
 	"worker/models"
 
+	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
-	"gorm.io/driver/sqlite"
 	_ "modernc.org/sqlite" // 使用纯Go SQLite实现
 )
 
@@ -18,6 +19,20 @@ var (
 	// DB 数据库连接实例
 	DB *gorm.DB
 )
+
+// TaskRepository 提供对任务数据的访问抽象。
+type TaskRepository interface {
+	Create(task *models.Task) error
+	GetByTaskID(taskID string) (*models.Task, error)
+	GetAll() ([]models.Task, error)
+	GetByWorkerID(workerID string) ([]models.Task, error)
+	GetByStatus(status domain.TaskStatus) ([]models.Task, error)
+	Update(task *models.Task) error
+	UpdateStatus(taskID string, status domain.TaskStatus) error
+	UpdateProgress(taskID string, progress int, speed int64, downloaded int64) error
+	Delete(taskID string) error
+	GetActiveTasksCount(workerID string) (int64, error)
+}
 
 // Initialize 初始化数据库
 func Initialize(dataPath string) error {
@@ -27,20 +42,20 @@ func Initialize(dataPath string) error {
 	config := &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent), // 设置为Silent减少日志输出
 	}
-	
+
 	// 使用纯Go SQLite实现
 	dbPath := filepath.Join(dataPath, "worker.db")
 	// 可选的模式配置：
 	// WAL模式（推荐）：_pragma=journal_mode(WAL) - 高并发性能，会产生.wal和.shm文件
 	// DELETE模式：_pragma=journal_mode(DELETE) - 传统模式，只有一个.db文件但性能较差
 	dsn := fmt.Sprintf("file:%s?cache=shared&mode=rwc&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(1)", dbPath)
-	
+
 	// 先打开原生SQL连接以确保使用modernc.org/sqlite
 	sqlDB, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return fmt.Errorf("failed to open sqlite database: %v", err)
 	}
-	
+
 	// 使用现有连接创建GORM实例
 	DB, err = gorm.Open(sqlite.Dialector{
 		Conn: sqlDB,
@@ -60,7 +75,7 @@ func Initialize(dataPath string) error {
 	if err != nil {
 		return fmt.Errorf("failed to get underlying sql.DB: %v", err)
 	}
-	
+
 	// 设置最大空闲连接数
 	sqlDBConn.SetMaxIdleConns(10)
 	// 设置最大打开连接数
@@ -88,23 +103,24 @@ func GetDB() *gorm.DB {
 	return DB
 }
 
-// TaskRepository 任务数据仓库
-type TaskRepository struct {
+type gormTaskRepository struct {
 	db *gorm.DB
 }
 
 // NewTaskRepository 创建任务仓库
-func NewTaskRepository() *TaskRepository {
-	return &TaskRepository{db: DB}
+func NewTaskRepository() TaskRepository {
+	return &gormTaskRepository{db: DB}
 }
 
+var _ TaskRepository = (*gormTaskRepository)(nil)
+
 // Create 创建任务
-func (r *TaskRepository) Create(task *models.Task) error {
+func (r *gormTaskRepository) Create(task *models.Task) error {
 	return r.db.Create(task).Error
 }
 
 // GetByTaskID 根据TaskID获取任务
-func (r *TaskRepository) GetByTaskID(taskID string) (*models.Task, error) {
+func (r *gormTaskRepository) GetByTaskID(taskID string) (*models.Task, error) {
 	var task models.Task
 	err := r.db.Where("task_id = ?", taskID).First(&task).Error
 	if err != nil {
@@ -114,59 +130,63 @@ func (r *TaskRepository) GetByTaskID(taskID string) (*models.Task, error) {
 }
 
 // GetAll 获取所有任务
-func (r *TaskRepository) GetAll() ([]models.Task, error) {
+func (r *gormTaskRepository) GetAll() ([]models.Task, error) {
 	var tasks []models.Task
 	err := r.db.Find(&tasks).Error
 	return tasks, err
 }
 
 // GetByWorkerID 根据WorkerID获取任务列表
-func (r *TaskRepository) GetByWorkerID(workerID string) ([]models.Task, error) {
+func (r *gormTaskRepository) GetByWorkerID(workerID string) ([]models.Task, error) {
 	var tasks []models.Task
 	err := r.db.Where("worker_id = ?", workerID).Find(&tasks).Error
 	return tasks, err
 }
 
 // GetByStatus 根据状态获取任务列表
-func (r *TaskRepository) GetByStatus(status string) ([]models.Task, error) {
+func (r *gormTaskRepository) GetByStatus(status domain.TaskStatus) ([]models.Task, error) {
 	var tasks []models.Task
 	err := r.db.Where("status = ?", status).Find(&tasks).Error
 	return tasks, err
 }
 
 // Update 更新任务
-func (r *TaskRepository) Update(task *models.Task) error {
+func (r *gormTaskRepository) Update(task *models.Task) error {
 	return r.db.Save(task).Error
 }
 
 // UpdateStatus 更新任务状态
-func (r *TaskRepository) UpdateStatus(taskID string, status string) error {
+func (r *gormTaskRepository) UpdateStatus(taskID string, status domain.TaskStatus) error {
 	return r.db.Model(&models.Task{}).Where("task_id = ?", taskID).Update("status", status).Error
 }
 
 // UpdateProgress 更新任务进度
-func (r *TaskRepository) UpdateProgress(taskID string, progress int, speed int64, downloaded int64) error {
+func (r *gormTaskRepository) UpdateProgress(taskID string, progress int, speed int64, downloaded int64) error {
 	updates := map[string]interface{}{
 		"progress":         progress,
-		"speed":           speed,
-		"downloaded":      downloaded,
+		"speed":            speed,
+		"downloaded":       downloaded,
 		"last_update_time": time.Now(),
 	}
 	return r.db.Model(&models.Task{}).Where("task_id = ?", taskID).Updates(updates).Error
 }
 
 // Delete 删除任务
-func (r *TaskRepository) Delete(taskID string) error {
+func (r *gormTaskRepository) Delete(taskID string) error {
 	return r.db.Where("task_id = ?", taskID).Delete(&models.Task{}).Error
 }
 
 // GetActiveTasksCount 获取活跃任务数量
-func (r *TaskRepository) GetActiveTasksCount(workerID string) (int64, error) {
+func (r *gormTaskRepository) GetActiveTasksCount(workerID string) (int64, error) {
 	var count int64
 	err := r.db.Model(&models.Task{}).Where(
-		"worker_id = ? AND status IN (?)", 
-		workerID, 
-		[]string{"pending", "downloading", "transcoding"},
+		"worker_id = ? AND status IN (?)",
+		workerID,
+		[]domain.TaskStatus{
+			domain.TaskStatusPending,
+			domain.TaskStatusDownloading,
+			domain.TaskStatusTranscoding,
+		},
 	).Count(&count).Error
 	return count, err
 }

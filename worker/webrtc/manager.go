@@ -14,21 +14,35 @@ import (
 	"github.com/pion/webrtc/v3"
 )
 
+// Service 抽象WebRTC管理器行为，以便依赖注入。
+type Service interface {
+	Start() error
+	Stop()
+	HandleOffer(sessionID, sdp string) (string, error)
+	AddICECandidate(sessionID, candidateStr string) error
+	GetSession(sessionID string) (*Session, bool)
+	GetAllSessions() []*Session
+	SetICECandidateHandler(handler func(sessionID string, candidate *webrtc.ICECandidate))
+	UpdateConfiguration(config webrtc.Configuration)
+	SendData(sessionID string, data []byte) error
+	BroadcastData(data []byte)
+}
+
 // Session WebRTC会话
 type Session struct {
-	ID         string                    `json:"id"`
-	PeerConn   *webrtc.PeerConnection   `json:"-"`
-	DataChan   *webrtc.DataChannel      `json:"-"`
-	State      webrtc.PeerConnectionState `json:"state"`
-	CreatedAt  int64                    `json:"created_at"`
+	ID        string                     `json:"id"`
+	PeerConn  *webrtc.PeerConnection     `json:"-"`
+	DataChan  *webrtc.DataChannel        `json:"-"`
+	State     webrtc.PeerConnectionState `json:"state"`
+	CreatedAt int64                      `json:"created_at"`
 }
 
 // Manager WebRTC管理器
 type Manager struct {
-	sessions         map[string]*Session
-	mutex            sync.RWMutex
-	config           webrtc.Configuration
-	configMu         sync.RWMutex
+	sessions            map[string]*Session
+	mutex               sync.RWMutex
+	config              webrtc.Configuration
+	configMu            sync.RWMutex
 	iceCandidateHandler func(sessionID string, candidate *webrtc.ICECandidate) // ICE候选者处理回调
 }
 
@@ -190,7 +204,7 @@ func (m *Manager) AddICECandidate(sessionID, candidateStr string) error {
 			if cand, ok := candidateData["candidate"].(string); ok {
 				candidate.Candidate = cand
 			}
-			
+
 			if sdpMid, ok := candidateData["sdpMid"]; ok {
 				if mid, ok := sdpMid.(string); ok {
 					candidate.SDPMid = &mid
@@ -307,6 +321,7 @@ func (m *Manager) getConfiguration() webrtc.Configuration {
 
 	return m.config
 }
+
 // FileRequest 文件请求结构
 type FileRequest struct {
 	Type string `json:"type"`
@@ -316,12 +331,12 @@ type FileRequest struct {
 
 // FileResponse 文件响应结构
 type FileResponse struct {
-	Type           string `json:"type"`
-	ID             string `json:"id"`
-	SliceNum       int    `json:"sliceNum"`
-	TotalSliceNum  int    `json:"totalSliceNum"`
-	TotalLength    int    `json:"totalLength"`
-	Payload        string `json:"payload"`
+	Type          string `json:"type"`
+	ID            string `json:"id"`
+	SliceNum      int    `json:"sliceNum"`
+	TotalSliceNum int    `json:"totalSliceNum"`
+	TotalLength   int    `json:"totalLength"`
+	Payload       string `json:"payload"`
 }
 
 const (
@@ -336,7 +351,7 @@ func (m *Manager) handleFileRequest(sessionID string, data []byte) {
 		return
 	}
 
-	log.Printf("Processing file request for session %s: type=%s, ts=%s, id=%s", 
+	log.Printf("Processing file request for session %s: type=%s, ts=%s, id=%s",
 		sessionID, request.Type, request.TS, request.ID)
 
 	if request.Type != "hijackReq" {
@@ -354,7 +369,7 @@ func (m *Manager) handleFileRequest(sessionID string, data []byte) {
 
 	// 处理文件路径，移除前缀
 	filePath = strings.TrimPrefix(filePath, "/video/")
-	
+
 	// 解析任务ID和文件名
 	parts := strings.Split(filePath, "/")
 	if len(parts) < 2 {
@@ -365,20 +380,20 @@ func (m *Manager) handleFileRequest(sessionID string, data []byte) {
 
 	taskID := parts[0]
 	fileName := parts[1]
-	
+
 	log.Printf("Parsed request: taskID=%s, fileName=%s", taskID, fileName)
 
 	// 构建实际文件路径 - 先尝试直接匹配taskID目��
 	var actualPath string
 	var found bool
-	
+
 	// 方法1：尝试直接匹配taskID目录
 	if strings.HasSuffix(fileName, ".m3u8") {
 		actualPath = filepath.Join("data", "m3u8", taskID, fileName)
 	} else if strings.HasSuffix(fileName, ".ts") || strings.HasSuffix(fileName, ".vtt") {
 		actualPath = filepath.Join("data", "m3u8", taskID, fileName)
 	}
-	
+
 	// 检查文件是否存在
 	if _, err := os.Stat(actualPath); err == nil {
 		found = true
@@ -391,7 +406,7 @@ func (m *Manager) handleFileRequest(sessionID string, data []byte) {
 			m.sendFileError(sessionID, request.ID, "M3U8 directory not accessible")
 			return
 		}
-		
+
 		// 遍历所有目录，寻找包含目标文件的目录
 		for _, entry := range entries {
 			if entry.IsDir() {
@@ -405,7 +420,7 @@ func (m *Manager) handleFileRequest(sessionID string, data []byte) {
 			}
 		}
 	}
-	
+
 	if !found {
 		log.Printf("File not found after searching: taskID=%s, fileName=%s", taskID, fileName)
 		m.sendFileError(sessionID, request.ID, "File not found")
@@ -450,7 +465,7 @@ func (m *Manager) sendFileData(sessionID, requestID string, data []byte, fileNam
 		}
 
 		chunk := data[start:end]
-		
+
 		// Base64编码
 		payload := base64.StdEncoding.EncodeToString(chunk)
 
@@ -496,3 +511,5 @@ func (m *Manager) sendFileError(sessionID, requestID, errorMsg string) {
 		log.Printf("Failed to send error response: %v", err)
 	}
 }
+
+var _ Service = (*Manager)(nil)

@@ -1,4 +1,4 @@
-package main
+package app
 
 import (
 	"context"
@@ -13,21 +13,19 @@ import (
 	webrtcLib "github.com/pion/webrtc/v3"
 )
 
-const (
-	defaultGatewayTurnTTL = time.Hour
-)
+const defaultGatewayTurnTTL = time.Hour
 
 type iceServersResponse struct {
-	Success    bool                    `json:"success"`
-	IceServers []webrtcLib.ICEServer   `json:"iceServers"`
-	TTL        int                     `json:"ttl"`
-	Error      string                  `json:"error"`
-	Message    string                  `json:"message"`
+	Success    bool                  `json:"success"`
+	IceServers []webrtcLib.ICEServer `json:"iceServers"`
+	TTL        int                   `json:"ttl"`
+	Error      string                `json:"error"`
+	Message    string                `json:"message"`
 }
 
-func (w *WorkerNode) ensureWebRTCConfiguration() webrtcLib.Configuration {
+func (w *Worker) ensureWebRTCConfiguration() webrtcLib.Configuration {
 	w.iceConfigMu.RLock()
-	if len(w.iceTurnServers) > 0 && time.Now().Before(w.iceConfigExpiry) {
+	if len(w.iceTurnServers) > 0 && w.now().Before(w.iceConfigExpiry) {
 		cached := make([]webrtcLib.ICEServer, len(w.iceTurnServers))
 		copy(cached, w.iceTurnServers)
 		w.iceConfigMu.RUnlock()
@@ -48,7 +46,7 @@ func (w *WorkerNode) ensureWebRTCConfiguration() webrtcLib.Configuration {
 	w.iceConfigMu.Lock()
 	w.iceTurnServers = make([]webrtcLib.ICEServer, len(turnServers))
 	copy(w.iceTurnServers, turnServers)
-	w.iceConfigExpiry = time.Now().Add(ttl)
+	w.iceConfigExpiry = w.now().Add(ttl)
 	cached := make([]webrtcLib.ICEServer, len(w.iceTurnServers))
 	copy(cached, w.iceTurnServers)
 	w.iceConfigMu.Unlock()
@@ -56,7 +54,7 @@ func (w *WorkerNode) ensureWebRTCConfiguration() webrtcLib.Configuration {
 	return w.composeWebRTCConfiguration(cached)
 }
 
-func (w *WorkerNode) fetchTurnServersFromGateway() ([]webrtcLib.ICEServer, time.Duration, error) {
+func (w *Worker) fetchTurnServersFromGateway() ([]webrtcLib.ICEServer, time.Duration, error) {
 	baseURL, err := w.gatewayAPIBase()
 	if err != nil {
 		return nil, 0, err
@@ -101,7 +99,7 @@ func (w *WorkerNode) fetchTurnServersFromGateway() ([]webrtcLib.ICEServer, time.
 	return payload.IceServers, ttl, nil
 }
 
-func (w *WorkerNode) composeWebRTCConfiguration(turnServers []webrtcLib.ICEServer) webrtcLib.Configuration {
+func (w *Worker) composeWebRTCConfiguration(turnServers []webrtcLib.ICEServer) webrtcLib.Configuration {
 	var config webrtcLib.Configuration
 
 	for _, entry := range w.config.Network.STUNServers {
@@ -124,7 +122,7 @@ func (w *WorkerNode) composeWebRTCConfiguration(turnServers []webrtcLib.ICEServe
 	return config
 }
 
-func (w *WorkerNode) gatewayAPIBase() (string, error) {
+func (w *Worker) gatewayAPIBase() (string, error) {
 	raw := strings.TrimSpace(w.config.Gateway.URL)
 	if raw == "" {
 		return "", fmt.Errorf("gateway URL is empty")

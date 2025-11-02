@@ -8,23 +8,25 @@ import (
 	"time"
 
 	"worker/database"
+	"worker/domain"
 	"worker/models"
 
 	"github.com/anacrolix/torrent"
 )
 
-// TaskStatus 任务状态
-type TaskStatus string
-
-const (
-	StatusPending     TaskStatus = "pending"
-	StatusDownloading TaskStatus = "downloading"
-	StatusCompleted   TaskStatus = "completed"
-	StatusError       TaskStatus = "error"
-	StatusPaused      TaskStatus = "paused"
-	StatusTranscoding TaskStatus = "transcoding"
-	StatusReady       TaskStatus = "ready"
-)
+// Service 抽象下载管理行为，方便依赖注入。
+type Service interface {
+	Start() error
+	Stop()
+	StartDownload(magnetURL string) (string, error)
+	PauseTask(taskID string) error
+	ResumeTask(taskID string) error
+	RemoveTask(taskID string) error
+	GetTask(taskID string) (*models.Task, bool)
+	GetAllTasks() []*models.Task
+	GetStatusChannel() <-chan *models.Task
+	SetExternalStatusHandler(handler func(*models.Task))
+}
 
 // Manager 下载管理器
 type Manager struct {
@@ -35,7 +37,7 @@ type Manager struct {
 	mutex                 sync.RWMutex
 	statusChan            chan *models.Task
 	maxTasks              int
-	taskRepo              *database.TaskRepository
+	taskRepo              database.TaskRepository
 	externalStatusHandler func(*models.Task) // 外部状态处理器
 }
 
@@ -112,7 +114,7 @@ func (m *Manager) StartDownload(magnetURL string) (string, error) {
 	task := &models.Task{
 		TaskID:    generateTaskID(),
 		MagnetURL: magnetURL,
-		Status:    string(StatusPending),
+		Status:    domain.TaskStatusPending,
 		Progress:  0,
 		WorkerID:  m.workerID,
 		CreatedAt: time.Now(),
@@ -173,7 +175,7 @@ func (m *Manager) PauseTask(taskID string) error {
 	}
 
 	// 更新数据库状态
-	return m.taskRepo.UpdateStatus(taskID, string(StatusPaused))
+	return m.taskRepo.UpdateStatus(taskID, domain.TaskStatusPaused)
 }
 
 // ResumeTask 恢复任务
@@ -183,7 +185,7 @@ func (m *Manager) ResumeTask(taskID string) error {
 		return fmt.Errorf("task not found: %s", taskID)
 	}
 
-	if task.Status == string(StatusPaused) {
+	if task.Status == domain.TaskStatusPaused {
 		go m.downloadTask(task)
 	}
 
@@ -210,7 +212,7 @@ func (m *Manager) downloadTask(task *models.Task) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("Download task %s panicked: %v", task.TaskID, r)
-			task.Status = string(StatusError)
+			task.Status = domain.TaskStatusError
 			metadata, _ := task.GetMetadata()
 			metadata["error"] = fmt.Sprintf("panic: %v", r)
 			task.SetMetadata(metadata)
@@ -225,7 +227,7 @@ func (m *Manager) downloadTask(task *models.Task) {
 	t, err := m.client.AddMagnet(task.MagnetURL)
 	if err != nil {
 		log.Printf("Failed to add magnet for task %s: %v", task.TaskID, err)
-		task.Status = string(StatusError)
+		task.Status = domain.TaskStatusError
 		metadata, _ := task.GetMetadata()
 		metadata["error"] = err.Error()
 		task.SetMetadata(metadata)
@@ -259,7 +261,7 @@ func (m *Manager) downloadTask(task *models.Task) {
 	m.mutex.Unlock()
 
 	// 更新任务状态为下载中
-	task.Status = string(StatusDownloading)
+	task.Status = domain.TaskStatusDownloading
 	task.UpdatedAt = time.Now()
 	m.taskRepo.Update(task)
 	m.statusChan <- task
@@ -270,7 +272,7 @@ func (m *Manager) downloadTask(task *models.Task) {
 	// 更新任务信息
 	task.Size = t.Length()
 	task.TorrentName = t.Name()
-	
+
 	// 保存文件信息
 	files := make([]models.TorrentFileInfo, len(t.Files()))
 	fileNames := make([]string, len(t.Files()))
@@ -285,7 +287,7 @@ func (m *Manager) downloadTask(task *models.Task) {
 	}
 	task.SetTorrentFiles(files)
 	m.taskRepo.Update(task)
-	
+
 	log.Printf("Got torrent info for task %s: %s, size: %d bytes", task.TaskID, t.Name(), task.Size)
 
 	// 开始下载所有文件
@@ -308,7 +310,7 @@ func (m *Manager) downloadTask(task *models.Task) {
 				return
 			}
 
-			if currentTask.Status != string(StatusDownloading) {
+			if currentTask.Status != domain.TaskStatusDownloading {
 				return
 			}
 
@@ -318,7 +320,7 @@ func (m *Manager) downloadTask(task *models.Task) {
 			if task.Size > 0 {
 				progress = int((downloaded * 100) / task.Size)
 			}
-			
+
 			// 计算速度
 			currentTime := time.Now()
 			elapsedTime := currentTime.Sub(lastTime).Seconds()
@@ -340,16 +342,16 @@ func (m *Manager) downloadTask(task *models.Task) {
 
 			// 检查是否完成
 			if progress >= 100 {
-				task.Status = string(StatusCompleted)
+				task.Status = domain.TaskStatusCompleted
 				task.UpdatedAt = time.Now()
 				m.taskRepo.Update(task)
 				log.Printf("Download completed for task %s", task.TaskID)
-				
+
 				// 从活跃任务中移除
 				m.mutex.Lock()
 				delete(m.activeTasks, task.TaskID)
 				m.mutex.Unlock()
-				
+
 				m.statusChan <- task
 				return
 			}
@@ -365,7 +367,7 @@ func (m *Manager) downloadTask(task *models.Task) {
 
 // restoreActiveTasks 恢复之前未完成的任务
 func (m *Manager) restoreActiveTasks() error {
-	tasks, err := m.taskRepo.GetByStatus(string(StatusDownloading))
+	tasks, err := m.taskRepo.GetByStatus(domain.TaskStatusDownloading)
 	if err != nil {
 		return err
 	}
@@ -381,7 +383,7 @@ func (m *Manager) restoreActiveTasks() error {
 // statusMonitor 状态监控
 func (m *Manager) statusMonitor() {
 	for task := range m.statusChan {
-		if task.Status == string(StatusDownloading) {
+		if task.Status == domain.TaskStatusDownloading {
 			// 使用 \r 实现单行刷新
 			fmt.Printf("\rTask %s status: %s, progress: %d%%, speed: %d KB/s", task.TaskID, task.Status, task.Progress, task.Speed/1024)
 		} else {
@@ -411,3 +413,5 @@ func (m *Manager) SetExternalStatusHandler(handler func(*models.Task)) {
 func generateTaskID() string {
 	return fmt.Sprintf("task_%d", time.Now().UnixNano())
 }
+
+var _ Service = (*Manager)(nil)

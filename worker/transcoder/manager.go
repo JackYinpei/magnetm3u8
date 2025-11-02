@@ -10,41 +10,43 @@ import (
 	"sync"
 	"time"
 
+	"worker/domain"
+
 	"github.com/google/uuid"
 )
 
-// TaskStatus 转码任务状态
-type TaskStatus string
-
-const (
-	TranscodeStatusPending    TaskStatus = "pending"
-	TranscodeStatusProcessing TaskStatus = "processing"
-	TranscodeStatusCompleted  TaskStatus = "completed"
-	TranscodeStatusError      TaskStatus = "error"
-)
+// Service 抽象转码器行为，方便依赖注入与测试。
+type Service interface {
+	Start() error
+	Stop()
+	StartTranscode(inputPath string) (string, error)
+	GetTask(taskID string) (*TranscodeTask, bool)
+	GetAllTasks() []*TranscodeTask
+	GetStatusChannel() <-chan *TranscodeTask
+}
 
 // TranscodeTask 转码任务
 type TranscodeTask struct {
-	ID         string            `json:"id"`
-	InputPath  string            `json:"input_path"`
-	OutputPath string            `json:"output_path"`
-	Status     TaskStatus        `json:"status"`
-	Progress   int               `json:"progress"`
-	M3U8Path   string            `json:"m3u8_path"`
-	Subtitles  []string          `json:"subtitles"`
-	CreatedAt  time.Time         `json:"created_at"`
-	UpdatedAt  time.Time         `json:"updated_at"`
-	Metadata   map[string]string `json:"metadata"`
+	ID         string                 `json:"id"`
+	InputPath  string                 `json:"input_path"`
+	OutputPath string                 `json:"output_path"`
+	Status     domain.TranscodeStatus `json:"status"`
+	Progress   int                    `json:"progress"`
+	M3U8Path   string                 `json:"m3u8_path"`
+	Subtitles  []string               `json:"subtitles"`
+	CreatedAt  time.Time              `json:"created_at"`
+	UpdatedAt  time.Time              `json:"updated_at"`
+	Metadata   map[string]string      `json:"metadata"`
 }
 
 // Manager 转码管理器 - 重构后的版本
 type Manager struct {
-	inputDir    string
-	outputDir   string
-	tasks       map[string]*TranscodeTask
-	mutex       sync.RWMutex
-	statusChan  chan *TranscodeTask
-	maxTasks    int
+	inputDir   string
+	outputDir  string
+	tasks      map[string]*TranscodeTask
+	mutex      sync.RWMutex
+	statusChan chan *TranscodeTask
+	maxTasks   int
 	// 引用原有的转码器
 	legacyManager *LegacyManager
 }
@@ -100,7 +102,7 @@ func (m *Manager) StartTranscode(inputPath string) (string, error) {
 	// 检查任务数量限制
 	activeCount := 0
 	for _, task := range m.tasks {
-		if task.Status == TranscodeStatusProcessing || task.Status == TranscodeStatusPending {
+		if task.Status == domain.TranscodeStatusProcessing || task.Status == domain.TranscodeStatusPending {
 			activeCount++
 		}
 	}
@@ -114,7 +116,7 @@ func (m *Manager) StartTranscode(inputPath string) (string, error) {
 	task := &TranscodeTask{
 		ID:        taskID,
 		InputPath: inputPath,
-		Status:    TranscodeStatusPending,
+		Status:    domain.TranscodeStatusPending,
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 		Metadata:  make(map[string]string),
@@ -155,7 +157,7 @@ func (m *Manager) transcodeTask(task *TranscodeTask) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("Transcode task %s panicked: %v", task.ID, r)
-			task.Status = TranscodeStatusError
+			task.Status = domain.TranscodeStatusError
 			task.Metadata["error"] = fmt.Sprintf("panic: %v", r)
 			task.UpdatedAt = time.Now()
 			m.statusChan <- task
@@ -164,7 +166,7 @@ func (m *Manager) transcodeTask(task *TranscodeTask) {
 
 	log.Printf("Starting transcode for task %s: %s", task.ID, task.InputPath)
 
-	task.Status = TranscodeStatusProcessing
+	task.Status = domain.TranscodeStatusProcessing
 	task.UpdatedAt = time.Now()
 	m.statusChan <- task
 
@@ -175,7 +177,7 @@ func (m *Manager) transcodeTask(task *TranscodeTask) {
 	m3u8Path, outputDir, err := m.legacyManager.Transcode(legacyID, task.InputPath)
 	if err != nil {
 		log.Printf("Transcode failed for task %s: %v", task.ID, err)
-		task.Status = TranscodeStatusError
+		task.Status = domain.TranscodeStatusError
 		task.Metadata["error"] = err.Error()
 		task.UpdatedAt = time.Now()
 		m.statusChan <- task
@@ -186,7 +188,7 @@ func (m *Manager) transcodeTask(task *TranscodeTask) {
 	task.M3U8Path = m3u8Path
 	task.OutputPath = outputDir
 	task.Progress = 100
-	task.Status = TranscodeStatusCompleted
+	task.Status = domain.TranscodeStatusCompleted
 	task.UpdatedAt = time.Now()
 
 	// 查找字幕文件
@@ -312,7 +314,7 @@ func (lm *LegacyManager) ConvertSubtitle(taskDir string, downloadPath string) ([
 		if info.IsDir() {
 			return nil
 		}
-		
+
 		ext := filepath.Ext(info.Name())
 		if !subtitleExts[ext] {
 			return nil
@@ -476,7 +478,6 @@ func getVideoCodec(inputPath string) (string, error) {
 	return codec, nil
 }
 
-
 // 提取视频中的字幕
 func extractSubtitles(inputPath string, outputDir string) error {
 	// 首先检查视频中的字幕流
@@ -567,3 +568,5 @@ func getSubtitleStreams(inputPath string) ([]subtitleStream, error) {
 
 	return streams, nil
 }
+
+var _ Service = (*Manager)(nil)
