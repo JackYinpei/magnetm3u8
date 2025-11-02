@@ -23,9 +23,9 @@ type iceServersResponse struct {
 	Message    string                `json:"message"`
 }
 
-func (w *Worker) ensureWebRTCConfiguration() webrtcLib.Configuration {
+func (w *Worker) ensureWebRTCConfiguration(force bool) webrtcLib.Configuration {
 	w.iceConfigMu.RLock()
-	if len(w.iceTurnServers) > 0 && w.now().Before(w.iceConfigExpiry) {
+	if !force && len(w.iceTurnServers) > 0 && w.now().Before(w.iceConfigExpiry) {
 		cached := make([]webrtcLib.ICEServer, len(w.iceTurnServers))
 		copy(cached, w.iceTurnServers)
 		w.iceConfigMu.RUnlock()

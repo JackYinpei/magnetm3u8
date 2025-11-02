@@ -23,6 +23,7 @@ type Service interface {
 	GetSession(sessionID string) (*Session, bool)
 	GetAllSessions() []*Session
 	SetICECandidateHandler(handler func(sessionID string, candidate *webrtc.ICECandidate))
+	SetConnectionStateHandler(handler func(sessionID string, state webrtc.PeerConnectionState))
 	UpdateConfiguration(config webrtc.Configuration)
 	SendData(sessionID string, data []byte) error
 	BroadcastData(data []byte)
@@ -39,11 +40,12 @@ type Session struct {
 
 // Manager WebRTC管理器
 type Manager struct {
-	sessions            map[string]*Session
-	mutex               sync.RWMutex
-	config              webrtc.Configuration
-	configMu            sync.RWMutex
-	iceCandidateHandler func(sessionID string, candidate *webrtc.ICECandidate) // ICE候选者处理回调
+	sessions               map[string]*Session
+	mutex                  sync.RWMutex
+	config                 webrtc.Configuration
+	configMu               sync.RWMutex
+	iceCandidateHandler    func(sessionID string, candidate *webrtc.ICECandidate) // ICE候选者处理回调
+	connectionStateHandler func(sessionID string, state webrtc.PeerConnectionState)
 }
 
 // New 创建新的WebRTC管理器
@@ -111,6 +113,10 @@ func (m *Manager) HandleOffer(sessionID, sdp string) (string, error) {
 	peerConn.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
 		log.Printf("WebRTC connection state changed for session %s: %s", sessionID, state.String())
 		session.State = state
+
+		if m.connectionStateHandler != nil {
+			m.connectionStateHandler(sessionID, state)
+		}
 
 		if state == webrtc.PeerConnectionStateFailed || state == webrtc.PeerConnectionStateClosed {
 			m.removeSession(sessionID)
@@ -288,6 +294,11 @@ func (m *Manager) SendData(sessionID string, data []byte) error {
 // SetICECandidateHandler 设置ICE候选者处理回调
 func (m *Manager) SetICECandidateHandler(handler func(sessionID string, candidate *webrtc.ICECandidate)) {
 	m.iceCandidateHandler = handler
+}
+
+// SetConnectionStateHandler 设置连接状态回调
+func (m *Manager) SetConnectionStateHandler(handler func(sessionID string, state webrtc.PeerConnectionState)) {
+	m.connectionStateHandler = handler
 }
 
 // BroadcastData 向所有会话广播数据

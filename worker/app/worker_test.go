@@ -131,6 +131,8 @@ func (f *fakeWebRTC) GetAllSessions() []*webrtc.Session          { return nil }
 
 func (f *fakeWebRTC) SetICECandidateHandler(func(string, *webrtcLib.ICECandidate)) {}
 
+func (f *fakeWebRTC) SetConnectionStateHandler(func(string, webrtcLib.PeerConnectionState)) {}
+
 func (f *fakeWebRTC) UpdateConfiguration(webrtcLib.Configuration) {
 	f.configUpdates++
 }

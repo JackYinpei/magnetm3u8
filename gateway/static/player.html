@@ -392,6 +392,18 @@
         const tsFileMap = new Map();
         const pendingRequests = new Map();
         const SERVER_CHUNK_SIZE = 16 * 1024;
+        const defaultIceServers = [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' },
+            { urls: 'stun:stun2.l.google.com:19302' },
+            { urls: 'stun:stun3.l.google.com:19302' },
+            { urls: 'stun:stun4.l.google.com:19302' },
+            { urls: 'stun:stun.cloudflare.com:3478' },
+            { urls: 'stun:stun.nextcloud.com:443' }
+        ];
+        let cachedIceServers = [];
+        let iceServersExpiry = 0;
+        let fallbackAttempted = false;
 
         // 初始化
         document.addEventListener('DOMContentLoaded', function() {
@@ -595,6 +607,89 @@
             }
         }
 
+        async function loadIceServers(forceRefresh = false) {
+            const now = Date.now();
+            if (!forceRefresh && cachedIceServers.length > 0 && now < iceServersExpiry) {
+                return cachedIceServers;
+            }
+
+            try {
+                const response = await fetch('/api/webrtc/ice-servers');
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+
+                const data = await response.json();
+                const servers = (data.iceServers || []).map(server => {
+                    const entry = { urls: server.urls };
+                    if (server.username) entry.username = server.username;
+                    if (server.credential) entry.credential = server.credential;
+                    return entry;
+                });
+
+                const ttlSeconds = data.ttl && data.ttl > 0 ? data.ttl : 300;
+                cachedIceServers = servers;
+                iceServersExpiry = now + ttlSeconds * 1000;
+
+                if (servers.length > 0) {
+                    console.log("加载Gateway返回的ICE服务器:", servers);
+                } else {
+                    console.log("Gateway未返回额外的ICE服务器，使用默认STUN列表");
+                }
+            } catch (error) {
+                console.warn("获取ICE服务器失败，使用缓存/默认配置:", error);
+                if (cachedIceServers.length === 0) {
+                    return [];
+                }
+            }
+
+            return cachedIceServers;
+        }
+
+        async function recreatePeerConnection(forceRefresh = false) {
+            try {
+                if (filePathChannel) {
+                    filePathChannel.close();
+                }
+            } catch (err) {
+                console.warn("关闭旧数据通道失败:", err);
+            }
+
+            try {
+                if (peerConnection) {
+                    peerConnection.onicecandidate = null;
+                    peerConnection.onconnectionstatechange = null;
+                    peerConnection.oniceconnectionstatechange = null;
+                    peerConnection.onicegatheringstatechange = null;
+                    peerConnection.close();
+                }
+            } catch (err) {
+                console.warn("关闭旧PeerConnection失败:", err);
+            }
+
+            peerConnection = null;
+            filePathChannel = null;
+
+            await createPeerConnection(forceRefresh);
+        }
+
+        async function attemptClientFallback() {
+            if (fallbackAttempted) {
+                return;
+            }
+
+            fallbackAttempted = true;
+            updateStatus('warning', '正在尝试通过TURN服务器重新建立连接...');
+
+            try {
+                await recreatePeerConnection(true);
+                console.log("已发起TURN回落重连请求");
+            } catch (error) {
+                console.error("TURN回落失败:", error);
+                updateStatus('error', 'TURN回落失败: ' + error.message);
+            }
+        }
+
         async function connectToGateway() {
             return new Promise((resolve, reject) => {
                 const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -604,11 +699,16 @@
                 
                 socket = new WebSocket(wsUrl);
                 
-                socket.onopen = () => {
+                socket.onopen = async () => {
                     console.log("WebSocket连接已建立");
                     updateWebSocketStatus('已连接');
-                    createPeerConnection();
-                    resolve();
+                    fallbackAttempted = false;
+                    try {
+                        await createPeerConnection(false);
+                        resolve();
+                    } catch (error) {
+                        reject(error);
+                    }
                 };
 
                 socket.onmessage = (event) => {
@@ -624,6 +724,7 @@
                     console.log("WebSocket连接已关闭");
                     updateWebSocketStatus('已断开');
                     updateStatus('error', 'WebSocket连接已断开');
+                    fallbackAttempted = false;
                     
                     // 自动重连
                     setTimeout(() => {
@@ -650,21 +751,12 @@
             });
         }
 
-        function createPeerConnection() {
+        async function createPeerConnection(forceRefresh = false) {
+            const additionalServers = await loadIceServers(forceRefresh);
+            const iceServers = defaultIceServers.concat(additionalServers || []);
             const config = {
-                iceServers: [
-                    // Google STUN服务器
-                    { urls: 'stun:stun.l.google.com:19302' },
-                    { urls: 'stun:stun1.l.google.com:19302' },
-                    { urls: 'stun:stun2.l.google.com:19302' },
-                    { urls: 'stun:stun3.l.google.com:19302' },
-                    { urls: 'stun:stun4.l.google.com:19302' },
-                    
-                    // 其他公共STUN服务器
-                    { urls: 'stun:stun.cloudflare.com:3478' },
-                    { urls: 'stun:stun.nextcloud.com:443' }
-                ],
-                iceCandidatePoolSize: 10  // 增加候选者池大小
+                iceServers,
+                iceCandidatePoolSize: 10
             };
 
             console.log("创建PeerConnection，配置:", config);
@@ -677,7 +769,7 @@
 
             setupDataChannel();
             setupPeerConnectionEvents();
-            createOffer();
+            await createOffer();
         }
 
         function setupDataChannel() {
@@ -735,14 +827,11 @@
                 updateRTCStatus(state);
                 
                 if (state === 'connected') {
+                    fallbackAttempted = false;
                     updateStatus('success', 'WebRTC连接已建立');
                 } else if (state === 'failed') {
-                    updateStatus('error', 'WebRTC连接失败 - 可能的网络问题');
-                    console.error("WebRTC连接失败，可能原因：");
-                    console.error("1. 网络环境限制（如手机热点的NAT）");
-                    console.error("2. STUN服务器无法访问");
-                    console.error("3. 防火墙阻止UDP流量");
-                    console.error("建议：尝试在更稳定的网络环境下测试");
+                    updateStatus('error', 'WebRTC连接失败，正在尝试使用TURN服务器');
+                    attemptClientFallback();
                 } else if (state === 'disconnected') {
                     updateStatus('error', 'WebRTC连接已断开');
                 }
@@ -753,9 +842,8 @@
                 console.log("ICE连接状态:", iceState);
                 
                 if (iceState === 'failed') {
-                    console.error("ICE连接失败 - 网络穿透问题");
-                    console.error("当前网络可能不支持P2P连接");
-                    console.error("手机热点通常有严格的NAT限制");
+                    console.error("ICE连接失败 - 网络穿透问题，尝试TURN回落");
+                    attemptClientFallback();
                 }
             };
 

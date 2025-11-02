@@ -51,6 +51,10 @@ type Worker struct {
 	iceConfigMu     sync.RWMutex
 	iceTurnServers  []webrtcLib.ICEServer
 	iceConfigExpiry time.Time
+
+	sessionMu       sync.Mutex
+	sessionOffers   map[string]string
+	sessionFallback map[string]bool
 }
 
 // New constructs a Worker with the supplied configuration and dependencies.
@@ -98,11 +102,14 @@ func New(cfg *config.Config, deps Dependencies) (*Worker, error) {
 		taskRepoFactory: factory,
 		heartbeatEvery:  heartbeat,
 		now:             nowFn,
+		sessionOffers:   make(map[string]string),
+		sessionFallback: make(map[string]bool),
 	}
 
 	worker.gateway.SetMessageHandler(worker.handleGatewayMessage)
 	worker.downloader.SetExternalStatusHandler(worker.handleDownloadStatusChange)
 	worker.webrtc.SetICECandidateHandler(worker.handleWebRTCICECandidate)
+	worker.webrtc.SetConnectionStateHandler(worker.handleWebRTCStateChange)
 
 	return worker, nil
 }
@@ -330,8 +337,9 @@ func (w *Worker) handleWebRTCOffer(payload map[string]interface{}) {
 
 	log.Printf("Received WebRTC offer for session %s from client %s", sessionID, clientID)
 
-	config := w.ensureWebRTCConfiguration()
+	config := w.ensureWebRTCConfiguration(false)
 	w.webrtc.UpdateConfiguration(config)
+	w.trackSessionOffer(sessionID, sdp)
 
 	answer, err := w.webrtc.HandleOffer(sessionID, sdp)
 	if err != nil {
@@ -353,6 +361,87 @@ func (w *Worker) handleICECandidate(payload map[string]interface{}) {
 	if err := w.webrtc.AddICECandidate(sessionID, candidate); err != nil {
 		log.Printf("Failed to add ICE candidate: %v", err)
 	}
+}
+
+func (w *Worker) handleWebRTCStateChange(sessionID string, state webrtcLib.PeerConnectionState) {
+	switch state {
+	case webrtcLib.PeerConnectionStateConnected, webrtcLib.PeerConnectionStateClosed:
+		w.clearSessionTracking(sessionID)
+	case webrtcLib.PeerConnectionStateFailed:
+		go w.attemptTurnFallback(sessionID)
+	}
+}
+
+func (w *Worker) trackSessionOffer(sessionID, sdp string) {
+	if sessionID == "" || sdp == "" {
+		return
+	}
+	w.sessionMu.Lock()
+	w.sessionOffers[sessionID] = sdp
+	w.sessionFallback[sessionID] = false
+	w.sessionMu.Unlock()
+}
+
+func (w *Worker) attemptTurnFallback(sessionID string) {
+	sdp, ok := w.markFallbackAndGetOffer(sessionID)
+	if !ok {
+		return
+	}
+
+	config := w.ensureWebRTCConfiguration(true)
+	if !w.hasTurnServers(config) {
+		log.Printf("TURN fallback requested for session %s but no TURN servers available", sessionID)
+		return
+	}
+
+	w.webrtc.UpdateConfiguration(config)
+
+	answer, err := w.webrtc.HandleOffer(sessionID, sdp)
+	if err != nil {
+		log.Printf("TURN fallback failed to handle offer for session %s: %v", sessionID, err)
+		return
+	}
+
+	if err := w.gateway.SendWebRTCAnswer(sessionID, answer); err != nil {
+		log.Printf("TURN fallback failed to send answer for session %s: %v", sessionID, err)
+	} else {
+		log.Printf("TURN fallback executed for session %s", sessionID)
+	}
+}
+
+func (w *Worker) markFallbackAndGetOffer(sessionID string) (string, bool) {
+	w.sessionMu.Lock()
+	defer w.sessionMu.Unlock()
+
+	if w.sessionFallback[sessionID] {
+		return "", false
+	}
+	sdp, ok := w.sessionOffers[sessionID]
+	if !ok || sdp == "" {
+		w.sessionFallback[sessionID] = true
+		return "", false
+	}
+	w.sessionFallback[sessionID] = true
+	return sdp, true
+}
+
+func (w *Worker) clearSessionTracking(sessionID string) {
+	w.sessionMu.Lock()
+	delete(w.sessionOffers, sessionID)
+	delete(w.sessionFallback, sessionID)
+	w.sessionMu.Unlock()
+}
+
+func (w *Worker) hasTurnServers(config webrtcLib.Configuration) bool {
+	for _, server := range config.ICEServers {
+		for _, urlValue := range server.URLs {
+			lower := strings.ToLower(urlValue)
+			if strings.HasPrefix(lower, "turn:") || strings.HasPrefix(lower, "turns:") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (w *Worker) handleDownloadStatusChange(task *models.Task) {
