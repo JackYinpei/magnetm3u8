@@ -28,6 +28,7 @@ type Manager struct {
 	sessions         map[string]*Session
 	mutex            sync.RWMutex
 	config           webrtc.Configuration
+	configMu         sync.RWMutex
 	iceCandidateHandler func(sessionID string, candidate *webrtc.ICECandidate) // ICE候选者处理回调
 }
 
@@ -78,7 +79,7 @@ func (m *Manager) HandleOffer(sessionID, sdp string) (string, error) {
 	log.Printf("Handling WebRTC offer for session: %s", sessionID)
 
 	// 创建新的PeerConnection
-	peerConn, err := webrtc.NewPeerConnection(m.config)
+	peerConn, err := webrtc.NewPeerConnection(m.getConfiguration())
 	if err != nil {
 		return "", fmt.Errorf("failed to create peer connection: %v", err)
 	}
@@ -291,6 +292,21 @@ func (m *Manager) BroadcastData(data []byte) {
 	}
 }
 
+// UpdateConfiguration 更新WebRTC配置
+func (m *Manager) UpdateConfiguration(config webrtc.Configuration) {
+	m.configMu.Lock()
+	defer m.configMu.Unlock()
+
+	m.config = config
+}
+
+// 获取当前配置（内部使用）
+func (m *Manager) getConfiguration() webrtc.Configuration {
+	m.configMu.RLock()
+	defer m.configMu.RUnlock()
+
+	return m.config
+}
 // FileRequest 文件请求结构
 type FileRequest struct {
 	Type string `json:"type"`

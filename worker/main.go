@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -36,6 +37,10 @@ type WorkerNode struct {
 	downloader *downloader.Manager
 	transcoder *transcoder.Manager
 	webrtc     *webrtc.Manager
+
+	iceConfigMu     sync.RWMutex
+	iceTurnServers  []webrtcLib.ICEServer
+	iceConfigExpiry time.Time
 }
 
 func main() {
@@ -347,6 +352,10 @@ func (w *WorkerNode) handleWebRTCOffer(payload map[string]interface{}) {
 	sdp, _ := payload["sdp"].(string)
 
 	log.Printf("Received WebRTC offer for session %s from client %s", sessionID, clientID)
+
+	// 更新WebRTC配置，确保包含最新的TURN/STUN信息
+	config := w.ensureWebRTCConfiguration()
+	w.webrtc.UpdateConfiguration(config)
 
 	// 处理Offer并生成Answer
 	answer, err := w.webrtc.HandleOffer(sessionID, sdp)

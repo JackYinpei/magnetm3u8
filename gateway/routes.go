@@ -36,6 +36,7 @@ func setupRoutes(router *gin.Engine, gateway *GatewayManager) {
 		api.GET("/nodes/:id", controller.GetNodeDetail)
 
 		// WebRTC信令API
+		api.GET("/webrtc/ice-servers", controller.GetICEServers)
 		api.POST("/webrtc/offer", controller.HandleWebRTCOffer)
 		api.POST("/webrtc/answer", controller.HandleWebRTCAnswer)
 		api.POST("/webrtc/ice", controller.HandleICECandidate)
@@ -65,6 +66,7 @@ type GatewayController struct {
 	nodeConns       map[string]*websocket.Conn // 节点WebSocket连接
 	clientConns     map[string]*websocket.Conn // 客户端WebSocket连接
 	pendingRequests map[string]*PendingRequest  // 等待响应的请求
+	iceProvider     *IceServerProvider
 	mutex           sync.RWMutex                // 并发控制
 }
 
@@ -86,6 +88,7 @@ func NewGatewayController(gateway *GatewayManager) *GatewayController {
 		nodeConns:       make(map[string]*websocket.Conn),
 		clientConns:     make(map[string]*websocket.Conn),
 		pendingRequests: make(map[string]*PendingRequest),
+		iceProvider:     NewIceServerProviderFromEnv(),
 	}
 	
 	// 启动清理任务
@@ -119,6 +122,37 @@ func (gc *GatewayController) GetNodeDetail(c *gin.Context) {
 		"success": true,
 		"data":    node,
 	})
+}
+
+// GetICEServers 返回可用的ICE服务器配置（包含TURN）
+func (gc *GatewayController) GetICEServers(c *gin.Context) {
+	if gc.iceProvider == nil || !gc.iceProvider.Enabled() {
+		c.JSON(http.StatusOK, gin.H{
+			"success":     true,
+			"iceServers":  []IceServer{},
+			"ttl":         0,
+			"message":     "Cloudflare TURN not configured",
+		})
+		return
+	}
+
+	iceServers, ttl, err := gc.iceProvider.Get()
+	if err != nil {
+		log.Printf("Failed to fetch ICE servers: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   "Failed to fetch ICE servers",
+		})
+		return
+	}
+
+	response := gin.H{
+		"success":    true,
+		"iceServers": iceServers,
+		"ttl":        int(ttl.Seconds()),
+	}
+
+	c.JSON(http.StatusOK, response)
 }
 
 // HandleWebRTCOffer 处理WebRTC Offer
