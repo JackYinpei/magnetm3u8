@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Debug Tasks API</title>
+</head>
+<body>
+    <h1>Debug Tasks API</h1>
+    <button onclick="testAPI()">Test API</button>
+    <div id="result"></div>
+    
+    <script>
+        async function testAPI() {
+            const resultDiv = document.getElementById('result');
+            
+            try {
+                resultDiv.innerHTML = 'Loading...';
+                const response = await fetch('/api/tasks');
+                const data = await response.json();
+                
+                resultDiv.innerHTML = `
+                    <h2>API Response:</h2>
+                    <pre>${JSON.stringify(data, null, 2)}</pre>
+                    
+                    <h2>Tasks Count: ${data.data.tasks.length}</h2>
+                    
+                    ${data.data.tasks.map(task => `
+                        <div style="border: 1px solid #ccc; margin: 10px; padding: 10px;">
+                            <h3>Task ID: ${task.id}</h3>
+                            <p>Status: ${task.status}</p>
+                            <p>Progress: ${task.progress}%</p>
+                            <p>Speed: ${task.speed} bytes/s</p>
+                            <p>Magnet: ${task.magnet_url.substring(0, 50)}...</p>
+                        </div>
+                    `).join('')}
+                `;
+            } catch (error) {
+                resultDiv.innerHTML = `<h2>Error:</h2><pre>${error.message}</pre>`;
+            }
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,1237 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MagnetStream - 分布式影视平台</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://vjs.zencdn.net/8.6.1/video-js.css" rel="stylesheet">
+    <style>
+        :root {
+            --netflix-black: #141414;
+            --netflix-dark-gray: #181818;
+            --netflix-gray: #333333;
+            --netflix-light-gray: #757575;
+            --netflix-white: #ffffff;
+            --netflix-red: #e50914;
+            --netflix-red-hover: #f40612;
+            --netflix-blue: #0071eb;
+            --accent-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --success-green: #46d369;
+            --warning-orange: #ffa726;
+            --error-red: #f44336;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--netflix-black);
+            color: var(--netflix-white);
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        /* 顶部导航栏 */
+        .navbar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: linear-gradient(180deg, rgba(20,20,20,0.9) 0%, rgba(20,20,20,0.7) 70%, transparent 100%);
+            backdrop-filter: blur(10px);
+            padding: 20px 4%;
+            z-index: 1000;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: all 0.3s ease;
+        }
+
+        .navbar.scrolled {
+            background: var(--netflix-black);
+            box-shadow: 0 2px 20px rgba(0,0,0,0.3);
+        }
+
+        .logo {
+            font-size: 28px;
+            font-weight: 700;
+            background: linear-gradient(45deg, var(--netflix-red), #ff6b6b);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-decoration: none;
+        }
+
+        .nav-items {
+            display: flex;
+            gap: 30px;
+            align-items: center;
+        }
+
+        .nav-item {
+            color: var(--netflix-white);
+            text-decoration: none;
+            font-weight: 500;
+            padding: 8px 16px;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+            position: relative;
+        }
+
+        .nav-item:hover {
+            background: rgba(255,255,255,0.1);
+            transform: translateY(-2px);
+        }
+
+        .nav-item.active {
+            background: var(--accent-gradient);
+            box-shadow: 0 4px 15px rgba(102,126,234,0.3);
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .status-online {
+            background: rgba(70,211,105,0.2);
+            color: var(--success-green);
+            border: 1px solid var(--success-green);
+        }
+
+        .status-offline {
+            background: rgba(244,67,54,0.2);
+            color: var(--error-red);
+            border: 1px solid var(--error-red);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: currentColor;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        /* 主要内容区域 */
+        .main-content {
+            margin-top: 80px;
+            padding: 40px 4%;
+            min-height: calc(100vh - 80px);
+        }
+
+        /* 标签页系统 */
+        .tab-system {
+            margin-bottom: 40px;
+        }
+
+        .tab-navigation {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 32px;
+            border-bottom: 1px solid var(--netflix-gray);
+        }
+
+        .tab-button {
+            background: none;
+            border: none;
+            color: var(--netflix-light-gray);
+            padding: 16px 24px;
+            border-radius: 8px 8px 0 0;
+            font-weight: 500;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+        }
+
+        .tab-button:hover {
+            color: var(--netflix-white);
+            background: rgba(255,255,255,0.05);
+        }
+
+        .tab-button.active {
+            color: var(--netflix-white);
+            background: var(--netflix-dark-gray);
+            box-shadow: 0 -2px 0 var(--netflix-red);
+        }
+
+        .tab-content {
+            display: none;
+            animation: fadeIn 0.5s ease;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Hero Section - 提交磁力链接 */
+        .hero-section {
+            background: var(--accent-gradient);
+            border-radius: 20px;
+            padding: 60px 40px;
+            text-align: center;
+            margin-bottom: 40px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .hero-section::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000"><polygon points="0,1000 1000,0 1000,1000" fill="rgba(255,255,255,0.05)"/></svg>');
+            pointer-events: none;
+        }
+
+        .hero-content {
+            position: relative;
+            z-index: 1;
+        }
+
+        .hero-title {
+            font-size: 48px;
+            font-weight: 700;
+            margin-bottom: 16px;
+            text-shadow: 0 2px 10px rgba(0,0,0,0.3);
+        }
+
+        .hero-subtitle {
+            font-size: 20px;
+            opacity: 0.9;
+            margin-bottom: 40px;
+            font-weight: 300;
+        }
+
+        .magnet-form {
+            max-width: 600px;
+            margin: 0 auto;
+            display: flex;
+            gap: 16px;
+            align-items: stretch;
+        }
+
+        .magnet-input {
+            flex: 1;
+            padding: 16px 20px;
+            border: none;
+            border-radius: 12px;
+            background: rgba(255,255,255,0.15);
+            backdrop-filter: blur(10px);
+            color: var(--netflix-white);
+            font-size: 16px;
+            outline: none;
+            transition: all 0.3s ease;
+        }
+
+        .magnet-input::placeholder {
+            color: rgba(255,255,255,0.7);
+        }
+
+        .magnet-input:focus {
+            background: rgba(255,255,255,0.25);
+            box-shadow: 0 0 0 3px rgba(255,255,255,0.2);
+        }
+
+        .submit-button {
+            padding: 16px 32px;
+            background: var(--netflix-red);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-weight: 600;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            white-space: nowrap;
+        }
+
+        .submit-button:hover {
+            background: var(--netflix-red-hover);
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(229,9,20,0.3);
+        }
+
+        .submit-button:disabled {
+            background: var(--netflix-gray);
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        /* 结果提示 */
+        .result-message {
+            margin-top: 20px;
+            padding: 16px 24px;
+            border-radius: 12px;
+            font-weight: 500;
+            display: none;
+        }
+
+        .result-success {
+            background: rgba(70,211,105,0.2);
+            color: var(--success-green);
+            border: 1px solid var(--success-green);
+        }
+
+        .result-error {
+            background: rgba(244,67,54,0.2);
+            color: var(--error-red);
+            border: 1px solid var(--error-red);
+        }
+
+        /* 节点状态卡片 */
+        .nodes-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 24px;
+            margin-bottom: 40px;
+        }
+
+        .node-card {
+            background: var(--netflix-dark-gray);
+            border-radius: 16px;
+            padding: 24px;
+            border: 1px solid var(--netflix-gray);
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .node-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: var(--accent-gradient);
+        }
+
+        .node-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 12px 40px rgba(0,0,0,0.3);
+        }
+
+        .node-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+
+        .node-name {
+            font-size: 18px;
+            font-weight: 600;
+        }
+
+        .node-status {
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .node-online {
+            background: var(--success-green);
+            color: white;
+        }
+
+        .node-offline {
+            background: var(--error-red);
+            color: white;
+        }
+
+        .node-info {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        .node-metric {
+            text-align: center;
+            padding: 12px;
+            background: rgba(255,255,255,0.05);
+            border-radius: 8px;
+        }
+
+        .metric-value {
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--netflix-white);
+        }
+
+        .metric-label {
+            font-size: 12px;
+            color: var(--netflix-light-gray);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        /* 任务列表 */
+        .tasks-section h2 {
+            margin-bottom: 24px;
+            font-size: 32px;
+            font-weight: 700;
+        }
+
+        .tasks-controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+        }
+
+        .refresh-button {
+            padding: 12px 24px;
+            background: var(--netflix-blue);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .refresh-button:hover {
+            background: #0056b3;
+            transform: translateY(-2px);
+        }
+
+        .tasks-grid {
+            display: grid;
+            gap: 20px;
+        }
+
+        .task-card {
+            background: var(--netflix-dark-gray);
+            border-radius: 12px;
+            padding: 24px;
+            border: 1px solid var(--netflix-gray);
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+
+        .task-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 30px rgba(0,0,0,0.2);
+            border-color: var(--netflix-red);
+        }
+
+        .task-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 16px;
+        }
+
+        .task-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .task-magnet {
+            font-size: 14px;
+            color: var(--netflix-light-gray);
+            word-break: break-all;
+            max-width: 400px;
+        }
+
+        .task-status {
+            padding: 6px 12px;
+            border-radius: 16px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .status-pending { background: var(--warning-orange); color: white; }
+        .status-downloading { background: var(--netflix-blue); color: white; }
+        .status-processing { background: var(--netflix-red); color: white; }
+        .status-completed { background: var(--success-green); color: white; }
+        .status-transcoding { background: #9c27b0; color: white; }
+        .status-ready { background: var(--success-green); color: white; }
+        .status-error { background: var(--error-red); color: white; }
+
+        .task-progress {
+            margin: 16px 0;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: var(--netflix-gray);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: var(--accent-gradient);
+            border-radius: 4px;
+            transition: width 0.3s ease;
+            position: relative;
+        }
+
+        .progress-fill::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+            animation: shimmer 2s infinite;
+        }
+
+        @keyframes shimmer {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(100%); }
+        }
+
+        .task-actions {
+            display: flex;
+            gap: 12px;
+            margin-top: 16px;
+        }
+
+        .action-button {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .action-play {
+            background: var(--netflix-red);
+            color: white;
+        }
+
+        .action-play:hover {
+            background: var(--netflix-red-hover);
+        }
+
+        .action-info {
+            background: var(--netflix-gray);
+            color: white;
+        }
+
+        .action-info:hover {
+            background: #404040;
+        }
+
+        /* 视频播放器 */
+        .player-section {
+            background: var(--netflix-dark-gray);
+            border-radius: 16px;
+            padding: 32px;
+            text-align: center;
+        }
+
+        .video-container {
+            max-width: 1000px;
+            margin: 0 auto;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+        }
+
+        .video-js {
+            width: 100%;
+            height: 500px;
+        }
+
+        /* 响应式设计 */
+        @media (max-width: 768px) {
+            .navbar {
+                padding: 16px 4%;
+            }
+
+            .nav-items {
+                gap: 16px;
+            }
+
+            .hero-section {
+                padding: 40px 24px;
+                border-radius: 16px;
+            }
+
+            .hero-title {
+                font-size: 32px;
+            }
+
+            .hero-subtitle {
+                font-size: 16px;
+            }
+
+            .magnet-form {
+                flex-direction: column;
+            }
+
+            .nodes-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .task-header {
+                flex-direction: column;
+                gap: 12px;
+            }
+        }
+
+        /* 加载动画 */
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255,255,255,.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* 模态框 */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 2000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.8);
+            backdrop-filter: blur(10px);
+        }
+
+        .modal-content {
+            position: relative;
+            background: var(--netflix-dark-gray);
+            margin: 5% auto;
+            padding: 32px;
+            border-radius: 16px;
+            width: 90%;
+            max-width: 800px;
+            max-height: 80vh;
+            overflow-y: auto;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+        }
+
+        .modal-close {
+            position: absolute;
+            top: 16px;
+            right: 20px;
+            color: var(--netflix-light-gray);
+            font-size: 32px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: color 0.3s ease;
+        }
+
+        .modal-close:hover {
+            color: var(--netflix-white);
+        }
+
+        /* 空状态 */
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--netflix-light-gray);
+        }
+
+        .empty-icon {
+            font-size: 64px;
+            margin-bottom: 16px;
+            opacity: 0.5;
+        }
+
+        .empty-title {
+            font-size: 24px;
+            margin-bottom: 8px;
+            color: var(--netflix-white);
+        }
+
+        .empty-description {
+            font-size: 16px;
+            max-width: 400px;
+            margin: 0 auto;
+        }
+    </style>
+</head>
+<body>
+    <!-- 导航栏 -->
+    <nav class="navbar" id="navbar">
+        <a href="#" class="logo">MagnetStream</a>
+        <div class="nav-items">
+            <a href="#" class="nav-item active" data-tab="submit">添加任务</a>
+            <a href="#" class="nav-item" data-tab="nodes">节点状态</a>
+            <a href="#" class="nav-item" data-tab="tasks">任务列表</a>
+            <a href="#" class="nav-item" data-tab="player">播放器</a>
+            <div class="status-indicator status-offline" id="systemStatus">
+                <div class="status-dot"></div>
+                <span>系统离线</span>
+            </div>
+        </div>
+    </nav>
+
+    <!-- 主要内容 -->
+    <main class="main-content">
+        <!-- 标签页导航 -->
+        <div class="tab-system">
+            <!-- 提交磁力链接页面 -->
+            <div class="tab-content active" id="submitTab">
+                <section class="hero-section">
+                    <div class="hero-content">
+                        <h1 class="hero-title">分布式影视平台</h1>
+                        <p class="hero-subtitle">将磁力链接提交到分布式节点，享受高清流媒体体验</p>
+                        <form class="magnet-form" id="magnetForm">
+                            <input 
+                                type="text" 
+                                class="magnet-input" 
+                                id="magnetInput"
+                                placeholder="请输入磁力链接 (magnet:?xt=urn:btih:...)" 
+                                required
+                            >
+                            <button type="submit" class="submit-button" id="submitButton">
+                                <span id="submitText">开始下载</span>
+                                <div class="loading" id="submitLoading" style="display: none;"></div>
+                            </button>
+                        </form>
+                        <div class="result-message" id="resultMessage"></div>
+                    </div>
+                </section>
+            </div>
+
+            <!-- 节点状态页面 -->
+            <div class="tab-content" id="nodesTab">
+                <h2>在线节点</h2>
+                <div class="nodes-grid" id="nodesGrid">
+                    <div class="empty-state">
+                        <div class="empty-icon">📡</div>
+                        <div class="empty-title">暂无在线节点</div>
+                        <div class="empty-description">等待工作节点连接到网关服务器</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 任务列表页面 -->
+            <div class="tab-content" id="tasksTab">
+                <div class="tasks-section">
+                    <div class="tasks-controls">
+                        <h2>任务列表</h2>
+                        <button class="refresh-button" id="refreshButton">刷新</button>
+                    </div>
+                    <div class="tasks-grid" id="tasksGrid">
+                        <div class="empty-state">
+                            <div class="empty-icon">📂</div>
+                            <div class="empty-title">暂无任务</div>
+                            <div class="empty-description">提交磁力链接后，任务将显示在这里</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 播放器页面 -->
+            <div class="tab-content" id="playerTab">
+                <div class="player-section">
+                    <h2 id="playerTitle">选择任务开始播放</h2>
+                    <div class="video-container" id="videoContainer" style="display: none;">
+                        <video 
+                            id="videoPlayer" 
+                            class="video-js vjs-default-skin" 
+                            controls 
+                            preload="none" 
+                            data-setup="{}"
+                        ></video>
+                    </div>
+                    <div id="playerStatus"></div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- 任务详情模态框 -->
+    <div class="modal" id="taskModal">
+        <div class="modal-content">
+            <span class="modal-close" id="modalClose">&times;</span>
+            <div id="modalContent"></div>
+        </div>
+    </div>
+
+    <!-- 引入Video.js -->
+    <script src="https://vjs.zencdn.net/8.6.1/video.min.js"></script>
+    
+    <script>
+        // 全局变量
+        let socket = null;
+        let currentPlayer = null;
+        let nodes = [];
+        let tasks = [];
+        
+        // 初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeApp();
+        });
+
+        function initializeApp() {
+            setupEventListeners();
+            setupNavbar();
+            loadSystemStatus();
+            loadNodes();
+            loadTasks();
+            
+            // 定期刷新数据
+            setInterval(loadSystemStatus, 10000);
+            setInterval(loadNodes, 30000);
+            setInterval(loadTasks, 15000);
+        }
+
+        function setupEventListeners() {
+            // 标签页切换
+            document.querySelectorAll('.nav-item').forEach(item => {
+                item.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    switchTab(item.dataset.tab);
+                });
+            });
+
+            // 磁力链接提交
+            document.getElementById('magnetForm').addEventListener('submit', submitMagnet);
+            
+            // 刷新按钮
+            document.getElementById('refreshButton').addEventListener('click', () => {
+                loadNodes();
+                loadTasks();
+            });
+
+            // 模态框关闭
+            document.getElementById('modalClose').addEventListener('click', closeModal);
+            window.addEventListener('click', (e) => {
+                if (e.target === document.getElementById('taskModal')) {
+                    closeModal();
+                }
+            });
+        }
+
+        function setupNavbar() {
+            // 滚动时导航栏样式变化
+            window.addEventListener('scroll', () => {
+                const navbar = document.getElementById('navbar');
+                if (window.scrollY > 50) {
+                    navbar.classList.add('scrolled');
+                } else {
+                    navbar.classList.remove('scrolled');
+                }
+            });
+        }
+
+        function switchTab(tabId) {
+            // 更新导航项
+            document.querySelectorAll('.nav-item').forEach(item => {
+                item.classList.remove('active');
+            });
+            document.querySelector(`[data-tab="${tabId}"]`).classList.add('active');
+
+            // 更新内容
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.remove('active');
+            });
+            document.getElementById(tabId + 'Tab').classList.add('active');
+        }
+
+        async function loadSystemStatus() {
+            try {
+                const response = await fetch('/api/status');
+                const data = await response.json();
+                
+                const statusElement = document.getElementById('systemStatus');
+                if (data.success) {
+                    statusElement.className = 'status-indicator status-online';
+                    statusElement.innerHTML = `
+                        <div class="status-dot"></div>
+                        <span>在线节点: ${data.data.online_nodes}</span>
+                    `;
+                } else {
+                    throw new Error('API error');
+                }
+            } catch (error) {
+                const statusElement = document.getElementById('systemStatus');
+                statusElement.className = 'status-indicator status-offline';
+                statusElement.innerHTML = `
+                    <div class="status-dot"></div>
+                    <span>系统离线</span>
+                `;
+            }
+        }
+
+        async function loadNodes() {
+            try {
+                const response = await fetch('/api/nodes');
+                const data = await response.json();
+                
+                if (data.success) {
+                    nodes = data.data || [];
+                    renderNodes();
+                }
+            } catch (error) {
+                console.error('加载节点失败:', error);
+            }
+        }
+
+        function renderNodes() {
+            const grid = document.getElementById('nodesGrid');
+            
+            if (nodes.length === 0) {
+                grid.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-icon">📡</div>
+                        <div class="empty-title">暂无在线节点</div>
+                        <div class="empty-description">等待工作节点连接到网关服务器</div>
+                    </div>
+                `;
+                return;
+            }
+
+            grid.innerHTML = nodes.map(node => `
+                <div class="node-card">
+                    <div class="node-header">
+                        <div class="node-name">${node.name}</div>
+                        <div class="node-status ${node.status === 'online' ? 'node-online' : 'node-offline'}">
+                            ${node.status}
+                        </div>
+                    </div>
+                    <div class="node-info">
+                        <div class="node-metric">
+                            <div class="metric-value">${node.resources?.max_downloads || 0}</div>
+                            <div class="metric-label">最大下载</div>
+                        </div>
+                        <div class="node-metric">
+                            <div class="metric-value">${node.resources?.disk_space_gb || 0}GB</div>
+                            <div class="metric-label">磁盘空间</div>
+                        </div>
+                    </div>
+                    <div style="margin-top: 16px; font-size: 14px; color: var(--netflix-light-gray);">
+                        <div>ID: ${node.id}</div>
+                        <div>地址: ${node.address}</div>
+                        <div>能力: ${(node.capabilities || []).join(', ')}</div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        async function loadTasks() {
+            try {
+                const response = await fetch('/api/tasks');
+                const data = await response.json();
+                
+                if (data.success) {
+                    tasks = data.data.tasks || [];
+                    renderTasks();
+                } else {
+                    console.error('API returned error:', data);
+                    renderTasks();
+                }
+            } catch (error) {
+                console.error('加载任务失败:', error);
+                renderTasks();
+            }
+        }
+
+        function renderTasks() {
+            const grid = document.getElementById('tasksGrid');
+            
+            if (tasks.length === 0) {
+                grid.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-icon">📂</div>
+                        <div class="empty-title">暂无任务</div>
+                        <div class="empty-description">提交磁力链接后，任务将显示在这里</div>
+                    </div>
+                `;
+                return;
+            }
+
+            grid.innerHTML = tasks.map(task => {
+                const statusClass = `status-${task.status}`;
+                const progress = task.progress || 0;
+                const speed = formatSpeed(task.speed || 0);
+                const shortMagnet = task.magnet_url.length > 50 
+                    ? task.magnet_url.substring(0, 50) + '...' 
+                    : task.magnet_url;
+
+                return `
+                    <div class="task-card" onclick="showTaskDetail('${task.id}')">
+                        <div class="task-header">
+                            <div>
+                                <div class="task-title">${task.torrent_name || `任务 ${task.id.substring(0, 8)}...`}</div>
+                                <div class="task-magnet">${shortMagnet}</div>
+                            </div>
+                            <div class="task-status ${statusClass}">${getStatusText(task.status)}</div>
+                        </div>
+                        <div class="task-progress">
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="width: ${progress}%"></div>
+                            </div>
+                            <div style="margin-top: 8px; display: flex; justify-content: space-between;">
+                                <span>${progress}%</span>
+                                <span>${speed}</span>
+                            </div>
+                        </div>
+                        <div class="task-actions">
+                            ${task.status === 'ready' ? 
+                                `<button class="action-button action-play" onclick="event.stopPropagation(); playTask('${task.id}')">播放</button>` : ''
+                            }
+                            <button class="action-button action-info" onclick="event.stopPropagation(); showTaskDetail('${task.id}')">详情</button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function getStatusText(status) {
+            const statusMap = {
+                'pending': '等待中',
+                'downloading': '下载中', 
+                'processing': '处理中',
+                'completed': '下载完成',
+                'transcoding': '转码中',
+                'ready': '已就绪',
+                'error': '错误'
+            };
+            return statusMap[status] || status;
+        }
+
+        async function submitMagnet(e) {
+            e.preventDefault();
+            
+            const input = document.getElementById('magnetInput');
+            const button = document.getElementById('submitButton');
+            const message = document.getElementById('resultMessage');
+            const submitText = document.getElementById('submitText');
+            const submitLoading = document.getElementById('submitLoading');
+            
+            const magnetUrl = input.value.trim();
+            if (!magnetUrl || !magnetUrl.startsWith('magnet:')) {
+                showMessage('请输入有效的磁力链接', 'error');
+                return;
+            }
+
+            // 显示加载状态
+            button.disabled = true;
+            submitText.style.display = 'none';
+            submitLoading.style.display = 'inline-block';
+
+            try {
+                // 首先检查是否有在线节点
+                if (nodes.length === 0) {
+                    throw new Error('当前没有可用的工作节点，请稍后再试');
+                }
+
+                // 选择第一个在线节点提交任务
+                const targetNode = nodes.find(node => node.status === 'online');
+                if (!targetNode) {
+                    throw new Error('当前没有在线的工作节点');
+                }
+
+                const response = await fetch('/api/tasks/submit', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        worker_id: targetNode.id,
+                        magnet_url: magnetUrl
+                    })
+                });
+
+                const data = await response.json();
+                
+                if (data.success) {
+                    showMessage(`任务提交成功！已分配到节点: ${targetNode.name}`, 'success');
+                    input.value = '';
+                    
+                    // 切换到任务列表
+                    setTimeout(() => {
+                        switchTab('tasks');
+                        loadTasks();
+                    }, 2000);
+                } else {
+                    throw new Error(data.error || '提交失败');
+                }
+            } catch (error) {
+                showMessage(error.message, 'error');
+            } finally {
+                // 恢复按钮状态
+                button.disabled = false;
+                submitText.style.display = 'inline';
+                submitLoading.style.display = 'none';
+            }
+        }
+
+        function showMessage(text, type) {
+            const message = document.getElementById('resultMessage');
+            message.textContent = text;
+            message.className = `result-message result-${type}`;
+            message.style.display = 'block';
+            
+            setTimeout(() => {
+                message.style.display = 'none';
+            }, 5000);
+        }
+
+        function closeModal() {
+            document.getElementById('taskModal').style.display = 'none';
+        }
+
+        // 显示任务详情
+        async function showTaskDetail(taskId) {
+            try {
+                const response = await fetch(`/api/tasks/${taskId}`);
+                const data = await response.json();
+                
+                if (data.success && data.data) {
+                    const task = data.data;
+                    const modalContent = document.getElementById('modalContent');
+                    
+                    modalContent.innerHTML = `
+                        <h2>任务详情</h2>
+                        <div style="margin: 20px 0;">
+                            <p><strong>任务ID:</strong> ${task.id}</p>
+                            <p><strong>状态:</strong> <span class="task-status status-${task.status}">${getStatusText(task.status)}</span></p>
+                            <p><strong>进度:</strong> ${task.progress || 0}%</p>
+                            <p><strong>下载速度:</strong> ${formatSpeed(task.speed || 0)}</p>
+                            <p><strong>文件大小:</strong> ${formatFileSize(task.size || 0)}</p>
+                            <p><strong>已下载:</strong> ${formatFileSize(task.downloaded || 0)}</p>
+                            <p><strong>种子名称:</strong> ${task.torrent_name || '未知'}</p>
+                            <p><strong>Worker节点:</strong> ${task.worker_id}</p>
+                            <p><strong>创建时间:</strong> ${timeAgo(task.created_at)}</p>
+                        </div>
+                        
+                        ${task.files && task.files.length > 0 ? `
+                            <h3>文件列表:</h3>
+                            <ul style="margin: 10px 0; padding-left: 20px;">
+                                ${task.files.map(file => `<li>${file}</li>`).join('')}
+                            </ul>
+                        ` : ''}
+                        
+                        <div style="margin-top: 20px;">
+                            <strong>磁力链接:</strong><br>
+                            <textarea readonly style="width: 100%; height: 60px; margin-top: 5px; font-family: monospace; font-size: 12px;">${task.magnet_url}</textarea>
+                        </div>
+                    `;
+                    
+                    document.getElementById('taskModal').style.display = 'block';
+                } else {
+                    // 如果单个任务API不存在，显示基本信息
+                    const task = tasks.find(t => t.id === taskId);
+                    if (task) {
+                        const modalContent = document.getElementById('modalContent');
+                        modalContent.innerHTML = `
+                            <h2>任务详情</h2>
+                            <div style="margin: 20px 0;">
+                                <p><strong>任务ID:</strong> ${task.id}</p>
+                                <p><strong>状态:</strong> <span class="task-status status-${task.status}">${getStatusText(task.status)}</span></p>
+                                <p><strong>进度:</strong> ${task.progress || 0}%</p>
+                                <p><strong>下载速度:</strong> ${formatSpeed(task.speed || 0)}</p>
+                                <p><strong>文件大小:</strong> ${formatFileSize(task.size || 0)}</p>
+                                <p><strong>已下载:</strong> ${formatFileSize(task.downloaded || 0)}</p>
+                                <p><strong>种子名称:</strong> ${task.torrent_name || '未知'}</p>
+                                <p><strong>Worker节点:</strong> ${task.worker_id}</p>
+                                <p><strong>创建时间:</strong> ${timeAgo(task.created_at)}</p>
+                            </div>
+                            
+                            ${task.files && task.files.length > 0 ? `
+                                <h3>文件列表:</h3>
+                                <ul style="margin: 10px 0; padding-left: 20px;">
+                                    ${task.files.map(file => `<li>${file}</li>`).join('')}
+                                </ul>
+                            ` : ''}
+                            
+                            <div style="margin-top: 20px;">
+                                <strong>磁力链接:</strong><br>
+                                <textarea readonly style="width: 100%; height: 60px; margin-top: 5px; font-family: monospace; font-size: 12px;">${task.magnet_url}</textarea>
+                            </div>
+                        `;
+                        document.getElementById('taskModal').style.display = 'block';
+                    }
+                }
+            } catch (error) {
+                console.error('获取任务详情失败:', error);
+                alert('获取任务详情失败');
+            }
+        }
+
+        // 播放任务
+        function playTask(taskId) {
+            const task = tasks.find(t => t.id === taskId);
+            if (task && task.status === 'ready' && task.m3u8_path) {
+                // 直接跳转到播放器页面，传递taskId参数
+                window.open(`/player?taskId=${taskId}`, '_blank');
+            } else {
+                alert('任务还未准备就绪或没有可播放的内容');
+            }
+        }
+
+        // 工具函数
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        function formatSpeed(bytesPerSecond) {
+            return formatFileSize(bytesPerSecond) + '/s';
+        }
+
+        function timeAgo(date) {
+            const now = new Date();
+            const diff = now - new Date(date);
+            const minutes = Math.floor(diff / 60000);
+            const hours = Math.floor(diff / 3600000);
+            const days = Math.floor(diff / 86400000);
+
+            if (minutes < 1) return '刚刚';
+            if (minutes < 60) return `${minutes}分钟前`;
+            if (hours < 24) return `${hours}小时前`;
+            return `${days}天前`;
+        }
+    </script>
+</body>
+</html>
