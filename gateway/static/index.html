@@ -691,6 +691,178 @@
             max-width: 400px;
             margin: 0 auto;
         }
+
+        /* 用户认证控件 */
+        .auth-controls {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .auth-button {
+            padding: 8px 16px;
+            border-radius: 999px;
+            border: none;
+            background: var(--netflix-red);
+            color: white;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .auth-button.secondary {
+            background: transparent;
+            border: 1px solid rgba(255,255,255,0.3);
+        }
+
+        .auth-button:hover {
+            opacity: 0.85;
+            transform: translateY(-1px);
+        }
+
+        .auth-user {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 8px 16px;
+            background: rgba(255,255,255,0.05);
+            border-radius: 999px;
+        }
+
+        .auth-username {
+            font-weight: 600;
+        }
+
+        .auth-role {
+            font-size: 12px;
+            color: var(--netflix-light-gray);
+        }
+
+        /* 管理面板 */
+        .admin-panel {
+            background: var(--netflix-dark-gray);
+            border-radius: 16px;
+            padding: 32px;
+            border: 1px solid var(--netflix-gray);
+        }
+
+        .admin-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+        }
+
+        .users-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 16px;
+        }
+
+        .users-table th,
+        .users-table td {
+            padding: 12px 16px;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            text-align: left;
+        }
+
+        .users-table th {
+            color: var(--netflix-light-gray);
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .ban-badge {
+            padding: 4px 10px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .ban-badge.active {
+            background: rgba(244,67,54,0.2);
+            color: var(--error-red);
+        }
+
+        .ban-badge.inactive {
+            background: rgba(70,211,105,0.2);
+            color: var(--success-green);
+        }
+
+        .admin-empty {
+            padding: 40px;
+            text-align: center;
+            color: var(--netflix-light-gray);
+        }
+
+        .ban-toggle {
+            padding: 8px 16px;
+            border-radius: 999px;
+            border: none;
+            cursor: pointer;
+            background: var(--netflix-blue);
+            color: white;
+            font-weight: 600;
+        }
+
+        .ban-toggle.unban {
+            background: var(--success-green);
+            color: var(--netflix-black);
+        }
+
+        .ban-toggle:hover {
+            opacity: 0.85;
+        }
+
+        /* 登录注册模态框 */
+        .auth-modal {
+            max-width: 420px;
+            margin: 100px auto;
+            background: var(--netflix-dark-gray);
+            border-radius: 16px;
+            padding: 32px;
+            border: 1px solid var(--netflix-gray);
+        }
+
+        .auth-modal h2 {
+            margin-bottom: 16px;
+        }
+
+        .auth-input {
+            width: 100%;
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px solid rgba(255,255,255,0.1);
+            background: rgba(255,255,255,0.05);
+            color: white;
+            margin-bottom: 16px;
+        }
+
+        .auth-switch {
+            text-align: center;
+            margin-top: 16px;
+            color: var(--netflix-light-gray);
+        }
+
+        .auth-switch a {
+            color: var(--netflix-red);
+            text-decoration: none;
+            font-weight: 600;
+        }
+
+        .auth-message {
+            margin-bottom: 16px;
+            font-size: 14px;
+        }
+
+        .auth-message.success {
+            color: var(--success-green);
+        }
+
+        .auth-message.error {
+            color: var(--error-red);
+        }
     </style>
 </head>
 <body>
@@ -702,10 +874,15 @@
             <a href="#" class="nav-item" data-tab="nodes">节点状态</a>
             <a href="#" class="nav-item" data-tab="tasks">任务列表</a>
             <a href="#" class="nav-item" data-tab="player">播放器</a>
+            <a href="#" class="nav-item" data-tab="admin" id="adminNavItem" style="display: none;">管理后台</a>
             <div class="status-indicator status-offline" id="systemStatus">
                 <div class="status-dot"></div>
                 <span>系统离线</span>
             </div>
+        </div>
+        <div class="auth-controls" id="authControls">
+            <button class="auth-button" data-action="login">登录</button>
+            <button class="auth-button secondary" data-action="register">注册</button>
         </div>
     </nav>
 
@@ -782,6 +959,45 @@
                     <div id="playerStatus"></div>
                 </div>
             </div>
+
+            <!-- 管理后台页面 -->
+            <div class="tab-content" id="adminTab">
+                <div class="admin-panel">
+                    <div class="admin-header">
+                        <div>
+                            <h2>用户管理</h2>
+                            <p style="color: var(--netflix-light-gray); margin-top: 8px;">
+                                查看所有账号并切换封禁状态，确保平台安全
+                            </p>
+                        </div>
+                        <button class="refresh-button" id="adminRefreshButton">刷新用户</button>
+                    </div>
+                    <div id="adminUsersMessage" class="auth-message" style="display: none;"></div>
+                    <div id="adminUsersContent">
+                        <table class="users-table">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>用户名</th>
+                                    <th>角色</th>
+                                    <th>封禁状态</th>
+                                    <th>注册时间</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="adminUsersBody">
+                                <tr>
+                                    <td colspan="6">
+                                        <div class="admin-empty">
+                                            还没有加载任何用户，点击刷新获取数据
+                                        </div>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
         </div>
     </main>
 
@@ -790,6 +1006,27 @@
         <div class="modal-content">
             <span class="modal-close" id="modalClose">&times;</span>
             <div id="modalContent"></div>
+        </div>
+    </div>
+
+    <!-- 登录注册模态框 -->
+    <div class="modal" id="authModal" style="display: none;">
+        <div class="auth-modal">
+            <span class="modal-close" id="authModalClose">&times;</span>
+            <h2 id="authModalTitle">登录</h2>
+            <div id="authFormMessage" class="auth-message" style="display: none;"></div>
+            <form id="authForm">
+                <input type="hidden" id="authFormType" value="login">
+                <input type="text" id="authUsername" class="auth-input" placeholder="用户名" required>
+                <input type="password" id="authPassword" class="auth-input" placeholder="密码" required>
+                <button type="submit" class="submit-button" style="width: 100%; margin-top: 8px;">
+                    <span id="authSubmitText">立即登录</span>
+                    <div class="loading" id="authSubmitLoading" style="display: none;"></div>
+                </button>
+            </form>
+            <p class="auth-switch" id="authSwitchText">
+                还没有账号？<a href="#" id="switchAuthMode" data-target="register">立即注册</a>
+            </p>
         </div>
     </div>
 
@@ -802,15 +1039,18 @@
         let currentPlayer = null;
         let nodes = [];
         let tasks = [];
+        let currentUser = null;
+        let adminUsers = [];
         
         // 初始化
         document.addEventListener('DOMContentLoaded', function() {
             initializeApp();
         });
 
-        function initializeApp() {
+        async function initializeApp() {
             setupEventListeners();
             setupNavbar();
+            await loadCurrentUser();
             loadSystemStatus();
             loadNodes();
             loadTasks();
@@ -838,12 +1078,22 @@
                 loadNodes();
                 loadTasks();
             });
+            document.getElementById('adminRefreshButton').addEventListener('click', () => {
+                loadAdminUsers(true);
+            });
 
             // 模态框关闭
             document.getElementById('modalClose').addEventListener('click', closeModal);
+            document.getElementById('authModalClose').addEventListener('click', closeAuthModal);
+            document.getElementById('authForm').addEventListener('submit', handleAuthSubmit);
+            document.getElementById('authControls').addEventListener('click', handleAuthControlClick);
+
             window.addEventListener('click', (e) => {
                 if (e.target === document.getElementById('taskModal')) {
                     closeModal();
+                }
+                if (e.target === document.getElementById('authModal')) {
+                    closeAuthModal();
                 }
             });
         }
@@ -861,22 +1111,37 @@
         }
 
         function switchTab(tabId) {
+            if (tabId === 'admin' && (!currentUser || currentUser.role !== 'admin')) {
+                alert('只有管理员可以访问此页面');
+                return;
+            }
+
             // 更新导航项
             document.querySelectorAll('.nav-item').forEach(item => {
                 item.classList.remove('active');
             });
-            document.querySelector(`[data-tab="${tabId}"]`).classList.add('active');
+            const navTarget = document.querySelector(`[data-tab="${tabId}"]`);
+            if (navTarget) {
+                navTarget.classList.add('active');
+            }
 
             // 更新内容
             document.querySelectorAll('.tab-content').forEach(content => {
                 content.classList.remove('active');
             });
-            document.getElementById(tabId + 'Tab').classList.add('active');
+            const tabContent = document.getElementById(tabId + 'Tab');
+            if (tabContent) {
+                tabContent.classList.add('active');
+            }
+
+            if (tabId === 'admin') {
+                loadAdminUsers();
+            }
         }
 
         async function loadSystemStatus() {
             try {
-                const response = await fetch('/api/status');
+                const response = await fetch('/api/status', { credentials: 'include' });
                 const data = await response.json();
                 
                 const statusElement = document.getElementById('systemStatus');
@@ -901,7 +1166,7 @@
 
         async function loadNodes() {
             try {
-                const response = await fetch('/api/nodes');
+                const response = await fetch('/api/nodes', { credentials: 'include' });
                 const data = await response.json();
                 
                 if (data.success) {
@@ -956,7 +1221,7 @@
 
         async function loadTasks() {
             try {
-                const response = await fetch('/api/tasks');
+                const response = await fetch('/api/tasks', { credentials: 'include' });
                 const data = await response.json();
                 
                 if (data.success) {
@@ -1051,6 +1316,16 @@
                 return;
             }
 
+            if (!currentUser) {
+                showMessage('请先登录后再提交任务', 'error');
+                return;
+            }
+
+            if (currentUser.is_banned) {
+                showMessage('账号已被封禁，无法提交任务', 'error');
+                return;
+            }
+
             // 显示加载状态
             button.disabled = true;
             submitText.style.display = 'none';
@@ -1073,6 +1348,7 @@
                     headers: {
                         'Content-Type': 'application/json'
                     },
+                    credentials: 'include',
                     body: JSON.stringify({
                         worker_id: targetNode.id,
                         magnet_url: magnetUrl
@@ -1114,6 +1390,313 @@
             }, 5000);
         }
 
+        async function loadCurrentUser() {
+            try {
+                const response = await fetch('/api/auth/me', { credentials: 'include' });
+                const data = await response.json();
+                if (response.ok && data.success) {
+                    currentUser = data.data;
+                } else {
+                    currentUser = null;
+                }
+            } catch (error) {
+                currentUser = null;
+            }
+            updateAuthUI();
+        }
+
+        function updateAuthUI() {
+            const authControls = document.getElementById('authControls');
+            const adminNav = document.getElementById('adminNavItem');
+            if (!authControls || !adminNav) return;
+
+            if (currentUser) {
+                authControls.innerHTML = `
+                    <div class="auth-user">
+                        <div>
+                            <div class="auth-username">${currentUser.username}</div>
+                            <div class="auth-role">${currentUser.role === 'admin' ? '管理员' : '普通用户'}</div>
+                        </div>
+                        <button class="auth-button secondary" data-action="logout">退出</button>
+                    </div>
+                `;
+            } else {
+                authControls.innerHTML = `
+                    <button class="auth-button" data-action="login">登录</button>
+                    <button class="auth-button secondary" data-action="register">注册</button>
+                `;
+            }
+
+            if (currentUser && currentUser.role === 'admin') {
+                adminNav.style.display = 'inline-flex';
+            } else {
+                if (adminNav.classList.contains('active')) {
+                    switchTab('submit');
+                }
+                adminNav.style.display = 'none';
+            }
+        }
+
+        function handleAuthControlClick(event) {
+            const action = event.target.getAttribute('data-action');
+            if (!action) return;
+
+            if (action === 'login' || action === 'register') {
+                openAuthModal(action);
+            } else if (action === 'logout') {
+                logout();
+            }
+        }
+
+        function openAuthModal(mode = 'login') {
+            const modal = document.getElementById('authModal');
+            const title = document.getElementById('authModalTitle');
+            const formType = document.getElementById('authFormType');
+            const switchText = document.getElementById('authSwitchText');
+            const submitText = document.getElementById('authSubmitText');
+
+            formType.value = mode;
+            title.textContent = mode === 'login' ? '登录' : '注册';
+            submitText.textContent = mode === 'login' ? '立即登录' : '立即注册';
+
+            if (mode === 'login') {
+                switchText.innerHTML = `还没有账号？<a href="#" id="switchAuthMode" data-target="register">立即注册</a>`;
+            } else {
+                switchText.innerHTML = `已经有账号？<a href="#" id="switchAuthMode" data-target="login">返回登录</a>`;
+            }
+
+            document.getElementById('authUsername').value = '';
+            document.getElementById('authPassword').value = '';
+            showAuthMessage('', '');
+
+            modal.style.display = 'block';
+            // 重新绑定切换事件
+            const newSwitchLink = document.getElementById('switchAuthMode');
+            newSwitchLink.addEventListener('click', (e) => {
+                e.preventDefault();
+                const targetMode = e.target.getAttribute('data-target');
+                openAuthModal(targetMode);
+            });
+        }
+
+        function closeAuthModal() {
+            document.getElementById('authModal').style.display = 'none';
+        }
+
+        function showAuthMessage(text, type = 'error') {
+            const message = document.getElementById('authFormMessage');
+            if (!text) {
+                message.style.display = 'none';
+                message.textContent = '';
+                message.className = 'auth-message';
+                return;
+            }
+
+            message.textContent = text;
+            message.className = `auth-message ${type}`;
+            message.style.display = 'block';
+        }
+
+        async function handleAuthSubmit(event) {
+            event.preventDefault();
+
+            const username = document.getElementById('authUsername').value.trim();
+            const password = document.getElementById('authPassword').value.trim();
+            const mode = document.getElementById('authFormType').value;
+            const submitText = document.getElementById('authSubmitText');
+            const submitLoading = document.getElementById('authSubmitLoading');
+
+            if (!username || !password) {
+                showAuthMessage('请输入用户名和密码', 'error');
+                return;
+            }
+
+            submitText.style.display = 'none';
+            submitLoading.style.display = 'inline-block';
+
+            try {
+                if (mode === 'register') {
+                    const registerResp = await fetch('/api/auth/register', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        credentials: 'include',
+                        body: JSON.stringify({ username, password })
+                    });
+                    const registerData = await registerResp.json();
+                    if (!registerResp.ok || !registerData.success) {
+                        throw new Error(registerData.error || '注册失败');
+                    }
+                }
+
+                await performLogin(username, password);
+                await loadCurrentUser();
+                showAuthMessage(mode === 'login' ? '登录成功' : '注册成功，已自动登录', 'success');
+                setTimeout(() => {
+                    closeAuthModal();
+                }, 800);
+            } catch (error) {
+                showAuthMessage(error.message, 'error');
+            } finally {
+                submitText.style.display = 'inline';
+                submitLoading.style.display = 'none';
+            }
+        }
+
+        async function performLogin(username, password) {
+            const loginResp = await fetch('/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ username, password })
+            });
+            const loginData = await loginResp.json();
+            if (!loginResp.ok || !loginData.success) {
+                throw new Error(loginData.error || '登录失败');
+            }
+        }
+
+        async function logout() {
+            try {
+                await fetch('/api/auth/logout', {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+            } catch (error) {
+                console.error('退出登录失败:', error);
+            } finally {
+                currentUser = null;
+                updateAuthUI();
+            }
+        }
+
+        async function loadAdminUsers(showLoading = false) {
+            const tbody = document.getElementById('adminUsersBody');
+            if (!currentUser || currentUser.role !== 'admin') {
+                setAdminMessage('只有管理员可以查看用户列表', 'error');
+                if (tbody) {
+                    tbody.innerHTML = `
+                        <tr>
+                            <td colspan="6">
+                                <div class="admin-empty">未授权访问</div>
+                            </td>
+                        </tr>
+                    `;
+                }
+                return;
+            }
+
+            if (showLoading && tbody) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="6">
+                            <div class="admin-empty">正在加载用户数据...</div>
+                        </td>
+                    </tr>
+                `;
+            }
+
+            try {
+                setAdminMessage('', '');
+                const response = await fetch('/api/admin/users', { credentials: 'include' });
+                const data = await response.json();
+                if (!response.ok || !data.success) {
+                    throw new Error(data.error || '加载用户失败');
+                }
+                adminUsers = data.data || [];
+                renderAdminUsers();
+            } catch (error) {
+                setAdminMessage(error.message, 'error');
+            }
+        }
+
+        function renderAdminUsers() {
+            const tbody = document.getElementById('adminUsersBody');
+            if (!tbody) return;
+
+            if (!adminUsers.length) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="6">
+                            <div class="admin-empty">
+                                还没有用户数据
+                            </div>
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+
+            tbody.innerHTML = adminUsers.map(user => `
+                <tr>
+                    <td>${user.id}</td>
+                    <td>${user.username}</td>
+                    <td>${user.role === 'admin' ? '管理员' : '用户'}</td>
+                    <td>
+                        <span class="ban-badge ${user.is_banned ? 'active' : 'inactive'}">
+                            ${user.is_banned ? '已封禁' : '正常'}
+                        </span>
+                    </td>
+                    <td>${formatDateTime(user.created_at)}</td>
+                    <td>
+                        <button 
+                            class="ban-toggle ${user.is_banned ? 'unban' : ''}" 
+                            data-user-id="${user.id}" 
+                            data-target-state="${user.is_banned ? 'false' : 'true'}"
+                        >
+                            ${user.is_banned ? '解除封禁' : '封禁'}
+                        </button>
+                    </td>
+                </tr>
+            `).join('');
+
+            tbody.querySelectorAll('.ban-toggle').forEach(button => {
+                button.addEventListener('click', () => {
+                    const userId = button.getAttribute('data-user-id');
+                    const nextState = button.getAttribute('data-target-state') === 'true';
+                    toggleUserBan(userId, nextState);
+                });
+            });
+        }
+
+        function setAdminMessage(text, type = '') {
+            const message = document.getElementById('adminUsersMessage');
+            if (!message) {
+                return;
+            }
+
+            if (!text) {
+                message.style.display = 'none';
+                message.textContent = '';
+                message.className = 'auth-message';
+                return;
+            }
+
+            message.textContent = text;
+            message.className = `auth-message ${type}`;
+            message.style.display = 'block';
+        }
+
+        async function toggleUserBan(userId, shouldBan) {
+            try {
+                setAdminMessage('正在更新用户状态...', '');
+                const response = await fetch(`/api/admin/users/${userId}/ban`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({ banned: shouldBan })
+                });
+                const data = await response.json();
+                if (!response.ok || !data.success) {
+                    throw new Error(data.error || '更新失败');
+                }
+                await loadAdminUsers();
+                setAdminMessage('状态已更新', 'success');
+                setTimeout(() => setAdminMessage('', ''), 1500);
+            } catch (error) {
+                setAdminMessage(error.message, 'error');
+            }
+        }
+
         function closeModal() {
             document.getElementById('taskModal').style.display = 'none';
         }
@@ -1121,7 +1704,7 @@
         // 显示任务详情
         async function showTaskDetail(taskId) {
             try {
-                const response = await fetch(`/api/tasks/${taskId}`);
+                const response = await fetch(`/api/tasks/${taskId}`, { credentials: 'include' });
                 const data = await response.json();
                 
                 if (data.success && data.data) {
@@ -1208,6 +1791,15 @@
         }
 
         // 工具函数
+        function formatDateTime(value) {
+            if (!value) return '-';
+            const date = new Date(value);
+            if (Number.isNaN(date.getTime())) {
+                return '-';
+            }
+            return date.toLocaleString('zh-CN', { hour12: false });
+        }
+
         function formatFileSize(bytes) {
             if (bytes === 0) return '0 B';
             const k = 1024;

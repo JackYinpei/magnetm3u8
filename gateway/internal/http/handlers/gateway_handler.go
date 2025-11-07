@@ -1,4 +1,4 @@
-package main
+package handlers
 
 import (
 	"fmt"
@@ -9,6 +9,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+
+	"magnetm3u8-gateway/internal/cluster"
+	"magnetm3u8-gateway/internal/http/middleware"
+	"magnetm3u8-gateway/internal/ice"
 )
 
 var upgrader = websocket.Upgrader{
@@ -17,16 +21,18 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
+type WorkerNode = cluster.WorkerNode
+type SignalingSession = cluster.SignalingSession
+
 // Message 定义通用消息结构
 type Message struct {
 	Type    string                 `json:"type"`
 	Payload map[string]interface{} `json:"payload"`
 }
 
-// setupRoutes 设置路由
-func setupRoutes(router *gin.Engine, gateway *GatewayManager) {
-	// 创建控制器
-	controller := NewGatewayController(gateway)
+// RegisterGatewayRoutes wires all node/task/WebRTC endpoints.
+func RegisterGatewayRoutes(router *gin.Engine, manager *cluster.Manager, provider *ice.IceServerProvider) {
+	controller := NewGatewayController(manager, provider)
 
 	// API路由组
 	api := router.Group("/api")
@@ -51,49 +57,44 @@ func setupRoutes(router *gin.Engine, gateway *GatewayManager) {
 	}
 
 	// WebSocket路由
-	router.GET("/ws/nodes", controller.HandleNodeWebSocket)    // 工作节点连接
+	router.GET("/ws/nodes", controller.HandleNodeWebSocket)     // 工作节点连接
 	router.GET("/ws/clients", controller.HandleClientWebSocket) // 客户端连接
-
-	// 静态文件服务
-	router.Static("/static", "./static")
-	router.StaticFile("/", "./static/index.html")
-	router.StaticFile("/player", "./static/player.html")
 }
 
 // GatewayController 网关控制器
 type GatewayController struct {
-	gateway         *GatewayManager
+	gateway         *cluster.Manager
 	nodeConns       map[string]*websocket.Conn // 节点WebSocket连接
 	clientConns     map[string]*websocket.Conn // 客户端WebSocket连接
-	pendingRequests map[string]*PendingRequest  // 等待响应的请求
-	iceProvider     *IceServerProvider
-	mutex           sync.RWMutex                // 并发控制
+	pendingRequests map[string]*PendingRequest // 等待响应的请求
+	iceProvider     *ice.IceServerProvider
+	mutex           sync.RWMutex // 并发控制
 }
 
 // PendingRequest 等待中的请求
 type PendingRequest struct {
-	RequestID    string                   `json:"request_id"`
-	RequestType  string                   `json:"request_type"`
-	Responses    []map[string]interface{} `json:"responses"`
-	ExpectedNodes int                     `json:"expected_nodes"`
-	ResponseChan chan []map[string]interface{} `json:"-"`
-	CreatedAt    time.Time                `json:"created_at"`
-	mutex        sync.Mutex               `json:"-"`
+	RequestID     string                        `json:"request_id"`
+	RequestType   string                        `json:"request_type"`
+	Responses     []map[string]interface{}      `json:"responses"`
+	ExpectedNodes int                           `json:"expected_nodes"`
+	ResponseChan  chan []map[string]interface{} `json:"-"`
+	CreatedAt     time.Time                     `json:"created_at"`
+	mutex         sync.Mutex                    `json:"-"`
 }
 
 // NewGatewayController 创建新的网关控制器
-func NewGatewayController(gateway *GatewayManager) *GatewayController {
+func NewGatewayController(gateway *cluster.Manager, provider *ice.IceServerProvider) *GatewayController {
 	controller := &GatewayController{
 		gateway:         gateway,
 		nodeConns:       make(map[string]*websocket.Conn),
 		clientConns:     make(map[string]*websocket.Conn),
 		pendingRequests: make(map[string]*PendingRequest),
-		iceProvider:     NewIceServerProviderFromEnv(),
+		iceProvider:     provider,
 	}
-	
+
 	// 启动清理任务
 	go controller.cleanupExpiredRequests()
-	
+
 	return controller
 }
 
@@ -128,10 +129,10 @@ func (gc *GatewayController) GetNodeDetail(c *gin.Context) {
 func (gc *GatewayController) GetICEServers(c *gin.Context) {
 	if gc.iceProvider == nil || !gc.iceProvider.Enabled() {
 		c.JSON(http.StatusOK, gin.H{
-			"success":     true,
-			"iceServers":  []IceServer{},
-			"ttl":         0,
-			"message":     "Cloudflare TURN not configured",
+			"success":    true,
+			"iceServers": []ice.IceServer{},
+			"ttl":        0,
+			"message":    "Cloudflare TURN not configured",
 		})
 		return
 	}
@@ -317,6 +318,14 @@ func (gc *GatewayController) HandleICECandidate(c *gin.Context) {
 
 // SubmitTask 提交任务到指定节点
 func (gc *GatewayController) SubmitTask(c *gin.Context) {
+	if _, ok := middleware.CurrentUser(c); !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"success": false,
+			"error":   "请先登录后再提交任务",
+		})
+		return
+	}
+
 	var request struct {
 		WorkerID  string `json:"worker_id"`
 		MagnetURL string `json:"magnet_url"`
@@ -385,11 +394,11 @@ func (gc *GatewayController) GetAllTasks(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	// 创建请求ID和等待响应的通道
 	requestID := generateRequestID()
 	responseChan := make(chan []map[string]interface{}, 1)
-	
+
 	// 注册待响应的请求
 	gc.mutex.Lock()
 	gc.pendingRequests[requestID] = &PendingRequest{
@@ -401,7 +410,7 @@ func (gc *GatewayController) GetAllTasks(c *gin.Context) {
 		CreatedAt:     time.Now(),
 	}
 	gc.mutex.Unlock()
-	
+
 	// 向所有在线节点发送任务列表请求
 	sentCount := 0
 	for _, node := range nodes {
@@ -413,7 +422,7 @@ func (gc *GatewayController) GetAllTasks(c *gin.Context) {
 					"timestamp":  time.Now().Unix(),
 				},
 			}
-			
+
 			if err := conn.WriteJSON(message); err != nil {
 				log.Printf("Failed to request tasks from worker %s: %v", node.ID, err)
 				continue
@@ -421,13 +430,13 @@ func (gc *GatewayController) GetAllTasks(c *gin.Context) {
 			sentCount++
 		}
 	}
-	
+
 	// 如果没有成功发送任何请求，直接返回空结果
 	if sentCount == 0 {
 		gc.mutex.Lock()
 		delete(gc.pendingRequests, requestID)
 		gc.mutex.Unlock()
-		
+
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,
 			"data": gin.H{
@@ -436,14 +445,14 @@ func (gc *GatewayController) GetAllTasks(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	// 更新期待的节点数量
 	gc.mutex.Lock()
 	if req, exists := gc.pendingRequests[requestID]; exists {
 		req.ExpectedNodes = sentCount
 	}
 	gc.mutex.Unlock()
-	
+
 	// 等待响应或超时
 	select {
 	case allTasks := <-responseChan:
@@ -458,7 +467,7 @@ func (gc *GatewayController) GetAllTasks(c *gin.Context) {
 		gc.mutex.Lock()
 		delete(gc.pendingRequests, requestID)
 		gc.mutex.Unlock()
-		
+
 		c.JSON(http.StatusRequestTimeout, gin.H{
 			"success": false,
 			"error":   "Request timeout while waiting for worker responses",
@@ -469,7 +478,7 @@ func (gc *GatewayController) GetAllTasks(c *gin.Context) {
 // GetTaskDetail 获取任务详情
 func (gc *GatewayController) GetTaskDetail(c *gin.Context) {
 	taskID := c.Param("id")
-	
+
 	// 从worker节点获取任务详情
 	nodes := gc.gateway.GetOnlineNodes()
 	for _, node := range nodes {
@@ -481,14 +490,14 @@ func (gc *GatewayController) GetTaskDetail(c *gin.Context) {
 					"timestamp": time.Now().Unix(),
 				},
 			}
-			
+
 			if err := conn.WriteJSON(message); err != nil {
 				log.Printf("Failed to request task detail from worker %s: %v", node.ID, err)
 				continue
 			}
 		}
 	}
-	
+
 	// 暂时返回未找到
 	c.JSON(http.StatusNotFound, gin.H{
 		"success": false,
@@ -498,14 +507,14 @@ func (gc *GatewayController) GetTaskDetail(c *gin.Context) {
 
 // GetSystemStatus 获取系统状态
 func (gc *GatewayController) GetSystemStatus(c *gin.Context) {
-	onlineNodes := gc.gateway.GetOnlineNodes()
+	totalNodes, onlineNodes, activeSessions := gc.gateway.Stats()
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"online_nodes":  len(onlineNodes),
-			"total_nodes":   len(gc.gateway.nodes),
-			"active_sessions": len(gc.gateway.sessions),
+			"online_nodes":    onlineNodes,
+			"total_nodes":     totalNodes,
+			"active_sessions": activeSessions,
 		},
 	})
 }
@@ -670,17 +679,17 @@ func (gc *GatewayController) handleClientMessage(clientID string, message *Messa
 				if sessionID == "" {
 					sessionID = fmt.Sprintf("session_%s_%s_%d", clientID, workerID, time.Now().UnixNano())
 				}
-				
+
 				// 创建WebRTC会话
 				session := gc.gateway.CreateWebRTCSession(sessionID, clientID, workerID)
-				
+
 				// 确保消息中的session_id是正确的
 				message.Payload["session_id"] = session.SessionID
 				message.Payload["client_id"] = clientID
-				
-				log.Printf("Created WebRTC session %s between client %s and worker %s", 
+
+				log.Printf("Created WebRTC session %s between client %s and worker %s",
 					session.SessionID, clientID, workerID)
-				
+
 				if err := workerConn.WriteJSON(message); err != nil {
 					log.Printf("Failed to forward offer to worker %s: %v", workerID, err)
 				}
@@ -714,34 +723,34 @@ func (gc *GatewayController) handleTasksResponse(nodeID string, payload map[stri
 		log.Printf("Received tasks response from %s without request_id", nodeID)
 		return
 	}
-	
+
 	requestID, ok := requestIDIntf.(string)
 	if !ok {
 		log.Printf("Invalid request_id type from %s", nodeID)
 		return
 	}
-	
+
 	gc.mutex.Lock()
 	defer gc.mutex.Unlock()
-	
+
 	req, exists := gc.pendingRequests[requestID]
 	if !exists {
 		log.Printf("Received response for unknown request %s from %s", requestID, nodeID)
 		return
 	}
-	
+
 	req.mutex.Lock()
 	defer req.mutex.Unlock()
-	
+
 	// 添加节点信息到响应中
 	responseData := make(map[string]interface{})
 	for k, v := range payload {
 		responseData[k] = v
 	}
 	responseData["node_id"] = nodeID
-	
+
 	req.Responses = append(req.Responses, responseData)
-	
+
 	// 检查是否收集到所有响应
 	if len(req.Responses) >= req.ExpectedNodes {
 		// 合并所有任务
@@ -755,7 +764,7 @@ func (gc *GatewayController) handleTasksResponse(nodeID string, payload map[stri
 				}
 			}
 		}
-		
+
 		// 发送合并后的结果
 		select {
 		case req.ResponseChan <- allTasks:
@@ -763,7 +772,7 @@ func (gc *GatewayController) handleTasksResponse(nodeID string, payload map[stri
 		default:
 			// 通道已关闭或缓冲区满
 		}
-		
+
 		// 清理请求
 		delete(gc.pendingRequests, requestID)
 	}
@@ -785,11 +794,11 @@ func generateRequestID() string {
 func (gc *GatewayController) cleanupExpiredRequests() {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
-	
+
 	for range ticker.C {
 		gc.mutex.Lock()
 		now := time.Now()
-		
+
 		for requestID, req := range gc.pendingRequests {
 			// 清理超过30秒的请求
 			if now.Sub(req.CreatedAt) > 30*time.Second {
@@ -798,7 +807,7 @@ func (gc *GatewayController) cleanupExpiredRequests() {
 				log.Printf("Cleaned up expired request: %s", requestID)
 			}
 		}
-		
+
 		gc.mutex.Unlock()
 	}
 }

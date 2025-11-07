@@ -1,4 +1,4 @@
-package main
+package ice
 
 import (
 	"bytes"
@@ -14,9 +14,7 @@ import (
 	"time"
 )
 
-const (
-	defaultTurnTTLSeconds = 3600
-)
+const defaultTurnTTLSeconds = 3600
 
 // IceServer describes a TURN/STUN server entry returned to clients.
 type IceServer struct {
@@ -25,7 +23,6 @@ type IceServer struct {
 	Credential string   `json:"credential,omitempty"`
 }
 
-// cloudflareIceResponse mirrors the response from Cloudflare's TURN API.
 type cloudflareIceResponse struct {
 	IceServers []IceServer `json:"iceServers"`
 }
